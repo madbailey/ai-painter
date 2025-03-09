@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MS Paint AI</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/toolbar.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>MS Paint AI</h1>
+            <div class="api-status">API Status: <span id="status">Ready</span></div>
+        </header>
+        
+        <div class="main-content">
+            <div class="toolbar" id="toolbar">
+                <!-- Tools will be added dynamically -->
+            </div>
+            
+            <div class="canvas-container">
+                <canvas id="paintCanvas" width="800" height="600"></canvas>
+            </div>
+            
+            <div class="sidebar">
+                <div class="color-palette" id="colorPalette">
+                    <!-- Colors will be added dynamically -->
+                </div>
+                
+                <div class="brush-size">
+                    <label for="brushSize">Brush Size:</label>
+                    <input type="range" id="brushSize" min="1" max="50" value="5">
+                    <span id="brushSizeDisplay">5px</span>
+                </div>
+                
+                <div class="api-console">
+                    <h3>Last API Call:</h3>
+                    <pre id="apiLog"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/utils.js"></script>
+    <script src="js/canvas.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
