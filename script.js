@@ -30,6 +30,9 @@ let currentColor = '#000000';
 let brushSize = 2;
 let fillShapes = false;
 let drawingMode = 'ai'; // 'ai' or 'manual'
+let currentBrushType = 'round';  // Default brush type
+let currentTexture = 'smooth';   // Default texture
+let currentPressure = 1.0;     
 
 // Initialize polyline tracking
 window.currentPolyline = null;
@@ -40,8 +43,8 @@ let startY = 0;
 
 // Initialize canvas
 function initCanvas() {
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 initCanvas();
 
@@ -66,6 +69,126 @@ let currentIteration = 0;
 let prompt = '';
 let drawingTimerId = null;
 let commandHistory = []; // Add this array to store command history
+
+function updateBrushPreview() {
+  const previewCanvas = document.getElementById('brush-preview');
+  if (!previewCanvas) return;
+  
+  const previewCtx = previewCanvas.getContext('2d');
+  previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  
+  // Draw a sample stroke
+  const centerY = previewCanvas.height / 2;
+  
+  if (currentTool === 'brush') {
+      if (currentBrushType === 'round') {
+          // Show a tapered stroke
+          previewCtx.beginPath();
+          previewCtx.moveTo(10, centerY);
+          previewCtx.lineTo(previewCanvas.width - 10, centerY);
+          previewCtx.lineWidth = brushSize;
+          previewCtx.lineCap = 'round';
+          previewCtx.strokeStyle = currentColor;
+          previewCtx.stroke();
+          
+          // Add some dots to simulate tapering
+          const gradient = previewCtx.createLinearGradient(10, 0, previewCanvas.width - 10, 0);
+          gradient.addColorStop(0, currentColor);
+          gradient.addColorStop(0.5, currentColor);
+          gradient.addColorStop(1, currentColor);
+          
+          previewCtx.fillStyle = gradient;
+          const steps = 5;
+          for (let i = 0; i < steps; i++) {
+              const x = 10 + (previewCanvas.width - 20) * (i / (steps - 1));
+              const size = brushSize * (0.7 + 0.6 * Math.sin(Math.PI * (i / (steps - 1))));
+              previewCtx.beginPath();
+              previewCtx.arc(x, centerY, size / 2, 0, Math.PI * 2);
+              previewCtx.fill();
+          }
+      } else if (currentBrushType === 'flat') {
+          // Show an angled flat brush stroke
+          const angle = Math.PI / 4; // 45 degrees
+          const length = previewCanvas.width - 20;
+          const startX = 10;
+          const startY = centerY;
+          const endX = startX + length * Math.cos(angle);
+          const endY = startY + length * Math.sin(angle);
+          
+          // Draw the main stroke direction
+          previewCtx.beginPath();
+          previewCtx.moveTo(startX, startY);
+          previewCtx.lineTo(endX, endY);
+          previewCtx.setLineDash([5, 3]);
+          previewCtx.strokeStyle = '#888';
+          previewCtx.lineWidth = 1;
+          previewCtx.stroke();
+          previewCtx.setLineDash([]);
+          
+          // Draw some rectangular brush stamps
+          const steps = 5;
+          for (let i = 0; i < steps; i++) {
+              const t = i / (steps - 1);
+              const x = startX + (endX - startX) * t;
+              const y = startY + (endY - startY) * t;
+              
+              // Create a rectangle for the brush stamp
+              const rect_width = brushSize * 1.5;
+              const rect_height = brushSize;
+              
+              previewCtx.save();
+              previewCtx.translate(x, y);
+              previewCtx.rotate(angle);
+              previewCtx.fillStyle = currentColor;
+              previewCtx.fillRect(-rect_width/2, -rect_height/2, rect_width, rect_height);
+              previewCtx.restore();
+          }
+      } else if (currentBrushType === 'splatter') {
+          // Show a spray pattern
+          const centerX = previewCanvas.width / 2;
+          const radius = brushSize * 2;
+          const dots = brushSize * 5;
+          
+          for (let i = 0; i < dots; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const distance = Math.random() * radius;
+              const x = centerX + distance * Math.cos(angle);
+              const y = centerY + distance * Math.sin(angle);
+              const dotSize = Math.random() * brushSize / 3 + 1;
+              
+              previewCtx.beginPath();
+              previewCtx.arc(x, y, dotSize, 0, Math.PI * 2);
+              previewCtx.fillStyle = currentColor;
+              previewCtx.fill();
+          }
+      }
+  } else if (currentTool === 'eraser') {
+      // Show eraser preview
+      previewCtx.beginPath();
+      previewCtx.arc(previewCanvas.width / 2, centerY, brushSize / 2, 0, Math.PI * 2);
+      previewCtx.fillStyle = 'white';
+      previewCtx.strokeStyle = '#888';
+      previewCtx.lineWidth = 1;
+      previewCtx.fill();
+      previewCtx.stroke();
+  }
+  
+  // Indicate texture
+  if (currentTexture === 'rough') {
+      previewCtx.font = '10px Arial';
+      previewCtx.fillStyle = '#888';
+      previewCtx.textAlign = 'center';
+      previewCtx.fillText('Rough texture', previewCanvas.width / 2, previewCanvas.height - 5);
+  }
+  
+  // Indicate pressure
+  const alpha = Math.round(currentPressure * 255).toString(16).padStart(2, '0');
+  previewCtx.font = '10px Arial';
+  previewCtx.fillStyle = '#888';
+  previewCtx.textAlign = 'center';
+  previewCtx.fillText(`Pressure: ${currentPressure.toFixed(1)}`, previewCanvas.width / 2, 15);
+}
+
 
 async function processNextCommand() {
     // ALWAYS clear the timer at the VERY BEGINNING.
@@ -270,154 +393,171 @@ function startDraw(e) {
 }
 
 function draw(e) {
-    if (!isDrawingManual || drawingMode !== 'manual') return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    if (currentTool === 'brush' || currentTool === 'eraser') {
-        // Draw line
-        ctx.beginPath();
-        ctx.moveTo(lastX, lastY);
-        ctx.lineTo(x, y);
-        ctx.lineWidth = brushSize;
-        ctx.lineCap = 'round';
-        
-        if (currentTool === 'eraser') {
-            ctx.strokeStyle = 'white';
-        } else {
-            ctx.strokeStyle = currentColor;
-        }
-        
-        ctx.stroke();
-        
-        // Track line segments for command history
-        if (!window.currentPolyline) {
-            window.currentPolyline = {
-                action: currentTool === 'eraser' ? 'erase' : 'draw_polyline',
-                points: [[lastX, lastY]],
-                color: currentTool === 'eraser' ? 'white' : currentColor,
-                width: brushSize
-            };
-        }
-        
-        // Add point to current polyline (limiting to avoid too many points)
-        if (window.currentPolyline.points.length < 20) {
-            window.currentPolyline.points.push([x, y]);
-        } else if (window.currentPolyline.points.length === 20) {
-            // If we reach 20 points, finish this polyline and start a new one
-            commandHistory.push(window.currentPolyline);
-            window.currentPolyline = {
-                action: currentTool === 'eraser' ? 'erase' : 'draw_polyline',
-                points: [[x, y]],
-                color: currentTool === 'eraser' ? 'white' : currentColor,
-                width: brushSize
-            };
-        }
-        
-        lastX = x;
-        lastY = y;
-    } else if (currentTool === 'rect' || currentTool === 'circle') {
-        // For preview, we can just redraw the canvas from the saved state
-        if (!currentImageData) {
-            currentImageData = canvas.toDataURL('image/png');
-        }
-        
-        const img = new Image();
-        img.onload = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            
-            // Draw preview rectangle or circle
-            if (currentTool === 'rect') {
-                if (fillShapes) {
-                    ctx.fillStyle = currentColor;
-                    ctx.fillRect(startX, startY, x - startX, y - startY);
-                } else {
-                    ctx.strokeStyle = currentColor;
-                    ctx.lineWidth = brushSize;
-                    ctx.strokeRect(startX, startY, x - startX, y - startY);
-                }
-            } else if (currentTool === 'circle') {
-                const radiusX = Math.abs(x - startX);
-                const radiusY = Math.abs(y - startY);
-                const radius = Math.max(radiusX, radiusY);
-                
-                ctx.beginPath();
-                ctx.arc(startX, startY, radius, 0, Math.PI * 2);
-                if (fillShapes) {
-                    ctx.fillStyle = currentColor;
-                    ctx.fill();
-                } else {
-                    ctx.strokeStyle = currentColor;
-                    ctx.lineWidth = brushSize;
-                    ctx.stroke();
-                }
-            }
-        };
-        img.src = currentImageData;
-    }
+  if (!isDrawingManual || drawingMode !== 'manual') return;
+  
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  if (currentTool === 'brush' || currentTool === 'eraser') {
+      // Draw line
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = 'round';
+      
+      if (currentTool === 'eraser') {
+          ctx.strokeStyle = 'white';
+      } else {
+          ctx.strokeStyle = currentColor;
+      }
+      
+      ctx.stroke();
+      
+      // Track line segments for command history
+      if (!window.currentPolyline) {
+          window.currentPolyline = {
+              action: currentTool === 'eraser' ? 'erase' : 'draw_polyline',
+              points: [[lastX, lastY]],
+              color: currentTool === 'eraser' ? 'white' : currentColor,
+              width: brushSize,
+              brush_type: currentBrushType,  // Add brush type
+              texture: currentTexture,       // Add texture
+              pressure: currentPressure      // Add pressure
+          };
+      }
+      
+      // Add point to current polyline (limiting to avoid too many points)
+      if (window.currentPolyline.points.length < 20) {
+          window.currentPolyline.points.push([x, y]);
+      } else if (window.currentPolyline.points.length === 20) {
+          // If we reach 20 points, finish this polyline and start a new one
+          commandHistory.push(window.currentPolyline);
+          window.currentPolyline = {
+              action: currentTool === 'eraser' ? 'erase' : 'draw_polyline',
+              points: [[x, y]],
+              color: currentTool === 'eraser' ? 'white' : currentColor,
+              width: brushSize,
+              brush_type: currentBrushType,
+              texture: currentTexture,
+              pressure: currentPressure
+          };
+      }
+      
+      lastX = x;
+      lastY = y;
+  } else if (currentTool === 'rect' || currentTool === 'circle') {
+      // For preview, we can just redraw the canvas from the saved state
+      if (!currentImageData) {
+          currentImageData = canvas.toDataURL('image/png');
+      }
+      
+      const img = new Image();
+      img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          
+          // Draw preview rectangle or circle
+          if (currentTool === 'rect') {
+              if (fillShapes) {
+                  ctx.fillStyle = currentColor;
+                  ctx.fillRect(startX, startY, x - startX, y - startY);
+              } else {
+                  ctx.strokeStyle = currentColor;
+                  ctx.lineWidth = brushSize;
+                  ctx.strokeRect(startX, startY, x - startX, y - startY);
+              }
+          } else if (currentTool === 'circle') {
+              const radiusX = Math.abs(x - startX);
+              const radiusY = Math.abs(y - startY);
+              const radius = Math.max(radiusX, radiusY);
+              
+              ctx.beginPath();
+              ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+              if (fillShapes) {
+                  ctx.fillStyle = currentColor;
+                  ctx.fill();
+              } else {
+                  ctx.strokeStyle = currentColor;
+                  ctx.lineWidth = brushSize;
+                  ctx.stroke();
+              }
+          }
+      };
+      img.src = currentImageData;
+  }
 }
 
 function endDraw() {
-    if (drawingMode !== 'manual') return;
-    
-    if (isDrawingManual) {
-        // Handle polyline commands
-        if ((currentTool === 'brush' || currentTool === 'eraser') && window.currentPolyline) {
-            // Add the current polyline to the command history
-            if (window.currentPolyline.points.length > 1) {
-                commandHistory.push(window.currentPolyline);
-                console.log("Added polyline to history:", window.currentPolyline);
-            }
-            window.currentPolyline = null;
-        }
-        
-        // Handle shape commands
-        if (currentTool === 'rect' || currentTool === 'circle') {
-            let manualCommand = null;
-            
-            if (currentTool === 'rect') {
-                manualCommand = {
-                    action: 'draw_rect',
-                    x0: startX,
-                    y0: startY,
-                    x1: lastX,
-                    y1: lastY,
-                    color: currentColor,
-                    width: brushSize,
-                    fill: fillShapes
-                };
-            } else if (currentTool === 'circle') {
-                const radius = Math.max(
-                    Math.abs(lastX - startX),
-                    Math.abs(lastY - startY)
-                );
-                manualCommand = {
-                    action: 'draw_circle',
-                    x: startX,
-                    y: startY,
-                    radius: radius,
-                    color: currentColor,
-                    width: brushSize,
-                    fill: fillShapes
-                };
-            }
-            
-            if (manualCommand) {
-                commandHistory.push(manualCommand);
-                console.log("Added manual command to history:", manualCommand);
-            }
-        }
-        
-        // Update the current image data to include the shape
-        currentImageData = canvas.toDataURL('image/png');
-    }
-    
-    isDrawingManual = false;
+  if (drawingMode !== 'manual') return;
+  
+  if (isDrawingManual) {
+      // Handle polyline commands
+      if ((currentTool === 'brush' || currentTool === 'eraser') && window.currentPolyline) {
+          // Add the current polyline to the command history
+          if (window.currentPolyline.points.length > 1) {
+              commandHistory.push(window.currentPolyline);
+              console.log("Added polyline to history:", window.currentPolyline);
+          }
+          window.currentPolyline = null;
+      }
+      
+      // Handle shape commands
+      if (currentTool === 'rect' || currentTool === 'circle') {
+          let manualCommand = null;
+          
+          if (currentTool === 'rect') {
+              manualCommand = {
+                  action: 'draw_rect',
+                  x0: startX,
+                  y0: startY,
+                  x1: lastX,
+                  y1: lastY,
+                  color: currentColor,
+                  width: brushSize,
+                  fill: fillShapes,
+                  texture: currentTexture  // Add texture
+              };
+          } else if (currentTool === 'circle') {
+              const radius = Math.max(
+                  Math.abs(lastX - startX),
+                  Math.abs(lastY - startY)
+              );
+              manualCommand = {
+                  action: 'draw_circle',
+                  x: startX,
+                  y: startY,
+                  radius: radius,
+                  color: currentColor,
+                  width: brushSize,
+                  fill: fillShapes,
+                  texture: currentTexture  // Add texture
+              };
+          }
+          
+          if (manualCommand) {
+              commandHistory.push(manualCommand);
+              console.log("Added manual command to history:", manualCommand);
+          }
+      }
+      
+      // Update the current image data to include the shape
+      currentImageData = canvas.toDataURL('image/png');
+  }
+  
+  isDrawingManual = false;
 }
-
+function updateAllBrushSettings() {
+  updateBrushPreview();
+  
+  // Update the current polyline if it exists
+  if (window.currentPolyline) {
+      window.currentPolyline.brush_type = currentBrushType;
+      window.currentPolyline.texture = currentTexture;
+      window.currentPolyline.pressure = currentPressure;
+  }
+}
 // Event Listeners for Manual Drawing
 canvas.addEventListener('mousedown', startDraw);
 canvas.addEventListener('mousemove', draw);
@@ -433,6 +573,44 @@ brushSizeSlider.addEventListener('input', function() {
 // Fill toggle
 fillToggle.addEventListener('change', function() {
     fillShapes = this.checked;
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Add event listeners for brush type buttons
+  const brushTypeButtons = document.querySelectorAll('.brush-type-btn');
+  if (brushTypeButtons) {
+      brushTypeButtons.forEach(btn => {
+          btn.addEventListener('click', function() {
+              brushTypeButtons.forEach(b => b.classList.remove('active'));
+              this.classList.add('active');
+              currentBrushType = this.dataset.brushType;
+              updateAllBrushSettings();
+          });
+      });
+  }
+  
+  // Add event listener for texture toggle
+  const textureToggle = document.getElementById('texture-toggle');
+  if (textureToggle) {
+      textureToggle.addEventListener('change', function() {
+          currentTexture = this.checked ? 'rough' : 'smooth';
+          updateAllBrushSettings();
+      });
+  }
+  
+  // Add event listener for pressure slider
+  const pressureSlider = document.getElementById('pressure-slider');
+  const pressureValue = document.getElementById('pressure-value');
+  if (pressureSlider && pressureValue) {
+      pressureSlider.addEventListener('input', function() {
+          currentPressure = parseFloat(this.value);
+          pressureValue.textContent = currentPressure.toFixed(1);
+          updateAllBrushSettings();
+      });
+  }
+  
+  // Initial update of the brush preview
+  updateAllBrushSettings();
 });
 
 // Tool selection
@@ -527,7 +705,7 @@ captureBtn.addEventListener('click', () => {
     downloadLink.href = image;
     downloadLink.download = 'canvas_image.png';
     downloadLink.style.display = 'block';
-    downloadLink.click();
+    downloadLink.click(); 
     downloadLink.style.display = 'none';
     setStatus('Image saved!', 'success');
     setTimeout(clearStatus, 3000);

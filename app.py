@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 import json
 import re
+import random
+import math
 
 load_dotenv()
 
@@ -116,9 +118,129 @@ def process_drawing_command(image_data, command):
                     color = color_map.get(color.lower(), (0, 0, 0, 255))
                     
             width = command.get('width', 2)
+            brush_type = command.get('brush_type', 'round')
+            texture = command.get('texture', 'smooth')
+            pressure = command.get('pressure', 1.0)  # Pressure affects opacity
             
             if len(points) > 1:
-                d.line(points, fill=color, width=width)
+                # Apply painterly effect based on brush type
+                if brush_type == 'round':
+                    # Create tapered stroke with varying width
+                    for i in range(len(points) - 1):
+                        # Calculate direction vector
+                        x1, y1 = points[i]
+                        x2, y2 = points[i+1]
+                        
+                        # Calculate distance between points
+                        dist = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+                        
+                        # Draw multiple circles along the path for organic feel
+                        steps = max(3, int(dist / 2))
+                        for j in range(steps + 1):
+                            # Interpolate position
+                            t = j / steps
+                            x = x1 + (x2 - x1) * t
+                            y = y1 + (y2 - y1) * t
+                            
+                            # Vary width slightly for organic feel
+                            point_width = width * (0.8 + 0.4 * (1 - abs(t - 0.5) * 2))
+                            
+                            # Add slight randomness for texture
+                            if texture == 'rough':
+                                x += random.uniform(-1, 1)
+                                y += random.uniform(-1, 1)
+                                point_width *= random.uniform(0.85, 1.15)
+                            
+                            # Adjust opacity based on pressure
+                            point_color = list(color)
+                            if len(point_color) == 4:  # RGBA
+                                point_color[3] = int(point_color[3] * pressure)
+                            
+                            # Draw the point as a circle
+                            d.ellipse((x - point_width/2, y - point_width/2, 
+                                      x + point_width/2, y + point_width/2), 
+                                      fill=tuple(point_color))
+                
+                elif brush_type == 'flat':
+                    # Simulate flat brush with more angular strokes
+                    for i in range(len(points) - 1):
+                        x1, y1 = points[i]
+                        x2, y2 = points[i+1]
+                        
+                        # Calculate angle of line
+                        angle = math.atan2(y2 - y1, x2 - x1)
+                        
+                        # Calculate perpendicular angle for brush width
+                        perp_angle = angle + math.pi/2
+                        
+                        # Draw multiple overlapping rectangles
+                        steps = max(3, int(((x2 - x1)**2 + (y2 - y1)**2)**0.5 / 2))
+                        for j in range(steps):
+                            # Interpolate position
+                            t = j / steps
+                            x = x1 + (x2 - x1) * t
+                            y = y1 + (y2 - y1) * t
+                            
+                            # Create brush width with perpendicular offset
+                            half_width = width / 2
+                            if texture == 'rough':
+                                half_width *= random.uniform(0.8, 1.2)
+                            
+                            # Define the rectangle for the brush stamp
+                            rect_width = half_width * 2 * 1.5  # Slightly elongated
+                            rect_height = half_width * 2
+                            
+                            # Apply rotation to the rectangle
+                            points_rect = [(x - rect_width/2, y - rect_height/2),
+                                         (x + rect_width/2, y - rect_height/2),
+                                         (x + rect_width/2, y + rect_height/2),
+                                         (x - rect_width/2, y + rect_height/2)]
+                            
+                            # Rotate points
+                            rotated_points = []
+                            for px, py in points_rect:
+                                px_rel, py_rel = px - x, py - y
+                                px_rot = px_rel * math.cos(angle) - py_rel * math.sin(angle)
+                                py_rot = px_rel * math.sin(angle) + py_rel * math.cos(angle)
+                                rotated_points.append((px_rot + x, py_rot + y))
+                            
+                            # Adjust opacity based on pressure
+                            point_color = list(color)
+                            if len(point_color) == 4:  # RGBA
+                                point_color[3] = int(point_color[3] * pressure)
+                            
+                            # Draw the polygon
+                            d.polygon(rotated_points, fill=tuple(point_color))
+                
+                elif brush_type == 'splatter':
+                    # Create a splatter effect with random dots
+                    for i in range(len(points) - 1):
+                        x1, y1 = points[i]
+                        x2, y2 = points[i+1]
+                        distance = ((x2 - x1)**2 + (y2 - y1)**2)**0.5
+                        dots = int(distance * width / 10)  # Number of splatter dots
+                        
+                        for _ in range(dots):
+                            # Random position along the line with some deviation
+                            t = random.random()
+                            x = x1 + (x2 - x1) * t + random.uniform(-width/2, width/2)
+                            y = y1 + (y2 - y1) * t + random.uniform(-width/2, width/2)
+                            
+                            # Random dot size
+                            dot_size = random.uniform(1, width/2)
+                            
+                            # Adjust opacity based on pressure and random factor
+                            point_color = list(color)
+                            if len(point_color) == 4:  # RGBA
+                                point_color[3] = int(point_color[3] * pressure * random.uniform(0.5, 1))
+                            
+                            # Draw the dot
+                            d.ellipse((x - dot_size, y - dot_size, 
+                                      x + dot_size, y + dot_size), 
+                                      fill=tuple(point_color))
+                else:
+                    # Default to standard line if brush type not recognized
+                    d.line(points, fill=color, width=width)
                 
         elif action == 'erase':
             points_data = command.get('points', [])
@@ -176,83 +298,117 @@ def process_drawing_command(image_data, command):
                 print("Floodfill not available in this PIL version")
                 pass
                 
-        elif action == 'draw_rect':
-            x0 = command.get('x0', 0)
-            y0 = command.get('y0', 0)
-            x1 = command.get('x1', 100)
-            y1 = command.get('y1', 100)
-            color = command.get('color', (0, 0, 0, 255))
+        elif action == 'draw_rect' or action == 'draw_circle':
+            # Add texture to shapes
+            texture = command.get('texture', 'smooth')
             
-            if isinstance(color, str):
-                # Same color handling as above
-                if color.startswith('#'):
-                    color = color.lstrip('#')
-                    if len(color) == 6:
-                        r, g, b = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
-                        color = (r, g, b, 255)
-                    elif len(color) == 8:
-                        r, g, b, a = tuple(int(color[i:i+2], 16) for i in (0, 2, 4, 6))
-                        color = (r, g, b, a)
-                elif color in {'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white'}:
-                    color_map = {
-                        'red': (255, 0, 0, 255),
-                        'blue': (0, 0, 255, 255),
-                        'green': (0, 128, 0, 255),
-                        'yellow': (255, 255, 0, 255),
-                        'purple': (128, 0, 128, 255),
-                        'orange': (255, 165, 0, 255),
-                        'black': (0, 0, 0, 255),
-                        'white': (255, 255, 255, 255),
-                    }
-                    color = color_map.get(color.lower(), (0, 0, 0, 255))
-                    
-            width = command.get('width', 2)
-            fill = command.get('fill', False)
-            
-            if fill:
-                d.rectangle([(x0, y0), (x1, y1)], fill=color)
-            else:
-                d.rectangle([(x0, y0), (x1, y1)], outline=color, width=width)
+            if action == 'draw_rect':
+                x0 = command.get('x0', 0)
+                y0 = command.get('y0', 0)
+                x1 = command.get('x1', 100)
+                y1 = command.get('y1', 100)
+                color = command.get('color', (0, 0, 0, 255))
                 
-        elif action == 'draw_circle':
-            x = command.get('x', 100)
-            y = command.get('y', 100)
-            radius = command.get('radius', 50)
-            color = command.get('color', (0, 0, 0, 255))
-            
-            if isinstance(color, str):
-                # Same color handling as above
-                if color.startswith('#'):
-                    color = color.lstrip('#')
-                    if len(color) == 6:
-                        r, g, b = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
-                        color = (r, g, b, 255)
-                    elif len(color) == 8:
-                        r, g, b, a = tuple(int(color[i:i+2], 16) for i in (0, 2, 4, 6))
-                        color = (r, g, b, a)
-                elif color in {'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white'}:
-                    color_map = {
-                        'red': (255, 0, 0, 255),
-                        'blue': (0, 0, 255, 255),
-                        'green': (0, 128, 0, 255),
-                        'yellow': (255, 255, 0, 255),
-                        'purple': (128, 0, 128, 255),
-                        'orange': (255, 165, 0, 255),
-                        'black': (0, 0, 0, 255),
-                        'white': (255, 255, 255, 255),
-                    }
-                    color = color_map.get(color.lower(), (0, 0, 0, 255))
+                # Process color as before
+                if isinstance(color, str):
+                    # Same color handling as above
+                    if color.startswith('#'):
+                        color = color.lstrip('#')
+                        if len(color) == 6:
+                            r, g, b = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+                            color = (r, g, b, 255)
+                        elif len(color) == 8:
+                            r, g, b, a = tuple(int(color[i:i+2], 16) for i in (0, 2, 4, 6))
+                            color = (r, g, b, a)
+                    elif color in {'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white'}:
+                        color_map = {
+                            'red': (255, 0, 0, 255),
+                            'blue': (0, 0, 255, 255),
+                            'green': (0, 128, 0, 255),
+                            'yellow': (255, 255, 0, 255),
+                            'purple': (128, 0, 128, 255),
+                            'orange': (255, 165, 0, 255),
+                            'black': (0, 0, 0, 255),
+                            'white': (255, 255, 255, 255),
+                        }
+                        color = color_map.get(color.lower(), (0, 0, 0, 255))
+                        
+                width = command.get('width', 2)
+                fill = command.get('fill', False)
+                
+                if texture == 'rough' and fill:
+                    # Create textured fill with slightly varied colors
+                    for y in range(int(y0), int(y1), 2):
+                        for x in range(int(x0), int(x1), 2):
+                            # Vary the color slightly for texture
+                            r, g, b, a = color if len(color) == 4 else (*color, 255)
+                            variation = random.uniform(0.9, 1.1)
+                            r = min(255, max(0, int(r * variation)))
+                            g = min(255, max(0, int(g * variation)))
+                            b = min(255, max(0, int(b * variation)))
+                            d.point((x, y), fill=(r, g, b, a))
+                else:
+                    # Use standard rectangle
+                    if fill:
+                        d.rectangle([(x0, y0), (x1, y1)], fill=color)
+                    else:
+                        d.rectangle([(x0, y0), (x1, y1)], outline=color, width=width)
                     
-            width = command.get('width', 2)
-            fill = command.get('fill', False)
-            
-            x0, y0 = x - radius, y - radius
-            x1, y1 = x + radius, y + radius
-            
-            if fill:
-                d.ellipse([(x0, y0), (x1, y1)], fill=color)
-            else:
-                d.ellipse([(x0, y0), (x1, y1)], outline=color, width=width)
+            elif action == 'draw_circle':
+                x = command.get('x', 100)
+                y = command.get('y', 100)
+                radius = command.get('radius', 50)
+                color = command.get('color', (0, 0, 0, 255))
+                
+                # Process color as before
+                if isinstance(color, str):
+                    # Same color handling as above
+                    if color.startswith('#'):
+                        color = color.lstrip('#')
+                        if len(color) == 6:
+                            r, g, b = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+                            color = (r, g, b, 255)
+                        elif len(color) == 8:
+                            r, g, b, a = tuple(int(color[i:i+2], 16) for i in (0, 2, 4, 6))
+                            color = (r, g, b, a)
+                    elif color in {'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white'}:
+                        color_map = {
+                            'red': (255, 0, 0, 255),
+                            'blue': (0, 0, 255, 255),
+                            'green': (0, 128, 0, 255),
+                            'yellow': (255, 255, 0, 255),
+                            'purple': (128, 0, 128, 255),
+                            'orange': (255, 165, 0, 255),
+                            'black': (0, 0, 0, 255),
+                            'white': (255, 255, 255, 255),
+                        }
+                        color = color_map.get(color.lower(), (0, 0, 0, 255))
+                        
+                width = command.get('width', 2)
+                fill = command.get('fill', False)
+                
+                x0, y0 = x - radius, y - radius
+                x1, y1 = x + radius, y + radius
+                
+                if texture == 'rough' and fill:
+                    # Create a textured fill for circle
+                    for y_pos in range(int(y0), int(y1), 2):
+                        for x_pos in range(int(x0), int(x1), 2):
+                            # Check if point is inside circle
+                            if ((x_pos - x)**2 + (y_pos - y)**2) <= radius**2:
+                                # Vary the color slightly for texture
+                                r, g, b, a = color if len(color) == 4 else (*color, 255)
+                                variation = random.uniform(0.9, 1.1)
+                                r = min(255, max(0, int(r * variation)))
+                                g = min(255, max(0, int(g * variation)))
+                                b = min(255, max(0, int(b * variation)))
+                                d.point((x_pos, y_pos), fill=(r, g, b, a))
+                else:
+                    # Use standard circle
+                    if fill:
+                        d.ellipse([(x0, y0), (x1, y1)], fill=color)
+                    else:
+                        d.ellipse([(x0, y0), (x1, y1)], outline=color, width=width)
 
     except Exception as e:
         print(f"Drawing error: {e} for command {action}")
@@ -292,26 +448,52 @@ def get_commands():
                 for i, cmd in enumerate(command_history):
                     history_text += f"{i+1}. {json.dumps(cmd)}\n"
                     
-            # Initial prompt with expanded command set and reasoning in thinking tags
+            # Initial prompt with expanded command set and painterly approach
             prompt_text = [
-                "You are a drawing assistant. I will give you a prompt, and you will respond with a JSON array of drawing commands after carefully reasoning about what to draw.",
+                "You are a digital painting assistant capable of creating expressive, painterly artwork. I will give you a prompt, and you will respond with a JSON array of drawing commands that creates organic, artistic strokes rather than rigid digital lines.",
                 # Include command history if available
                 history_text if history_text else "No previous commands recorded.",
-                "First, use <think></think> tags to reason about the drawing. Consider:",
-                " - What are the main elements needed for this drawing?",
-                " - How would you position these elements on a 500x400 canvas?",
-                " - What colors would work best for this drawing?",
-                " - What drawing order makes sense (background first, then main elements, then details)?",
+                "First, use <think></think> tags to reason about the drawing as a painter would. Consider:",
+                " - What are the main elements and how would a traditional artist approach them?",
+                " - What brush types would best represent different elements (round brushes for organic forms, flat brushes for structures)?",
+                " - How would brushstrokes be applied - direction, pressure, and texture?",
+                " - What painting techniques would suit this subject (wet-on-wet, glazing, impasto, etc.)?",
+                " - How would a traditional artist layer and build up the painting?",
+                
                 "After your reasoning, provide a JSON array of drawing commands. The valid commands are:",
-                " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2}  // Create lines with specified color and width",
-                " - {'action': 'erase', 'points': [[x1, y1], [x2, y2], ...], 'width': 10}  // Erase along the specified line path",
-                " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue'}  // Fill area at (x,y) with specified color",
-                " - {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': 'green', 'width': 2, 'fill': false}  // Draw rectangle",
-                " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false}  // Draw circle",
+                " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
+                " - {'action': 'erase', 'points': [[x1, y1], [x2, y2], ...], 'width': 10}",
+                " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue', 'texture': 'smooth'}",
+                " - {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': 'green', 'width': 2, 'fill': false, 'texture': 'smooth'}",
+                " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false, 'texture': 'smooth'}",
+                
+                "Brush types:",
+                " - 'round': Creates tapered, organic strokes with varying width",
+                " - 'flat': Creates angular, directional strokes like a flat brush",
+                " - 'splatter': Creates a scattered, spray-like effect",
+                
+                "Texture types:",
+                " - 'smooth': Creates clean, even strokes",
+                " - 'rough': Adds randomness and texture to strokes and fills",
+                
+                "Pressure (0.1-1.0):",
+                " - Higher values create more opaque strokes",
+                " - Lower values create more transparent strokes",
+                
                 "Available colors: 'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white', or hex values like '#FF0000'",
-                "Limit yourself to 10 points per polyline. Canvas size is 500x400.",
+                
+                "IMPORTANT: Focus on creating painterly effects by:",
+                " - Using shorter, overlapping brush strokes instead of long continuous lines",
+                " - Varying brush types, widths, and pressures for different elements",
+                " - Using rough textures for natural elements, smooth for manufactured ones",
+                " - Building up layers from background to foreground",
+                " - Using wider strokes for blocking in shapes, smaller for details",
+                
+                "Canvas size is 500x400.",
+                
                 "Here is the prompt:",
                 prompt,
+                
                 "Remember to use <think>your reasoning here</think> before your JSON response. Your final output should include both your thinking and the JSON array, but I will strip out the thinking part before processing.",
             ]
         else:
@@ -330,40 +512,60 @@ def get_commands():
                 for i, cmd in enumerate(command_history):
                     history_text += f"{i+1}. {json.dumps(cmd)}\n"
             
-            # Create a description of the current state
+            # Define iteration focus based on stage
             if iteration == 1:
-                description = "The drawing currently contains basic shapes."
+                focus = "Adding more organic brushstrokes and texture to define main forms."
             elif iteration == 2:
-                description = "The drawing has several shapes and lines that are starting to resemble the desired image, but it needs refinement."
+                focus = "Layering and building depth with varied brush strokes and colors."
             elif iteration == 3:
-                description = "The drawing is closer, but still needs improvement in shape and color."
+                focus = "Adding highlights, shadows, and texture with appropriate brush types."
             else:
-                description = "The drawing is an attempt, but needs further adjustments."
+                focus = "Refining details and adding final touches with small, precise strokes."
 
             prompt_text = [
                 "Here is the original prompt:",
                 prompt,
                 "Here is the current drawing:",
                 image_part,
-                f"The current state of the drawing is: {description}", # Add the description
+                f"The current iteration stage is: {iteration}", 
+                f"Focus: {focus}",
                 # Include command history if available
                 history_text if history_text else "No previous commands recorded.",
-                "First, use <think></think> tags to analyze the current drawing and reason about what to add or improve. Consider:",
-                " - What elements from the prompt are missing or need enhancement?",
-                " - How can you build upon what's already drawn?",
-                " - What colors or details would improve the current state?",
-                f" - For this iteration ({iteration}), focus on: " + 
-                ("Adding colors and details to the shapes." if iteration < 3 else "Refining the details and adding final touches."),
+                
+                "First, use <think></think> tags to analyze the current drawing as an artist would. Consider:",
+                " - What painterly techniques would improve what's already there?",
+                " - How would traditional painters approach the next layer?",
+                " - Where could brush variation add interest and texture?",
+                " - What elements need reinforcement or refinement?",
+                
                 "After your analysis, provide the NEXT set of drawing commands as a JSON array. The valid commands are:",
-                " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2}",
+                " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
                 " - {'action': 'erase', 'points': [[x1, y1], [x2, y2], ...], 'width': 10}",
-                " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue'}",
-                " - {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': 'green', 'width': 2, 'fill': false}",
-                " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false}",
+                " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue', 'texture': 'smooth'}",
+                " - {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': 'green', 'width': 2, 'fill': false, 'texture': 'smooth'}",
+                " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false, 'texture': 'smooth'}",
+                
+                "Brush types:",
+                " - 'round': Creates tapered, organic strokes with varying width",
+                " - 'flat': Creates angular, directional strokes like a flat brush",
+                " - 'splatter': Creates a scattered, spray-like effect",
+                
+                "Texture types:",
+                " - 'smooth': Creates clean, even strokes",
+                " - 'rough': Adds randomness and texture to strokes and fills",
+                
+                "Pressure (0.1-1.0):",
+                " - Higher values create more opaque strokes",
+                " - Lower values create more transparent strokes",
+                
+                "IMPORTANT: For this iteration, focus on:",
+                focus,
+                
                 "Remember to use <think>your analysis here</think> before your JSON response. Your final output should include both your thinking and the JSON array, but I will strip out the thinking part before processing.",
             ]
 
         response = model.generate_content(prompt_text, generation_config=GENERATION_CONFIG)
+        # Rest of the function remains the same
         print(f"Raw Gemini Response (Iteration {iteration}):")
         print(response.text)
         
