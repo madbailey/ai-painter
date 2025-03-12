@@ -105,6 +105,13 @@ let currentPart = 0;
 let nextPartToTransition = 0;
 let nextPhaseToTransition = null;
 
+// Helper function to escape HTML content for safe display
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // Drawing state for manual mode
 let isDrawingManual = false;
 let lastX = 0;
@@ -193,18 +200,37 @@ function createPhaseIndicator() {
     const canvasContainer = document.getElementById('canvas-container');
     canvasContainer.parentNode.insertBefore(indicatorContainer, canvasContainer);
     
-    // Add thinking container
+    // Add enhanced thinking container with better styling
     const thinkingContainer = document.createElement('div');
     thinkingContainer.id = 'ai-thinking';
     thinkingContainer.className = 'ai-thinking';
-    thinkingContainer.style.cssText = 'display: none; margin-top: 10px; background-color: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 14px; line-height: 1.5; max-height: 150px; overflow-y: auto;';
+    thinkingContainer.style.cssText = `
+      display: none; 
+      margin-top: 15px; 
+      background-color: #f7f9fc; 
+      padding: 15px; 
+      border-radius: 6px; 
+      font-size: 14px; 
+      line-height: 1.6; 
+      max-height: 250px; 
+      overflow-y: auto; 
+      border: 1px solid #e1e4e8;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      transition: all 0.3s ease;
+    `.replace(/\n\s*/g, '');
     
-    // Add toggle button
+    // Add toggle button with improved styling
     const thinkingToggle = document.createElement('button');
     thinkingToggle.id = 'thinking-toggle';
     thinkingToggle.className = 'thinking-toggle';
     thinkingToggle.textContent = 'Show AI Thinking';
-    thinkingToggle.style.cssText = 'margin-top: 10px; padding: 5px 10px; background-color: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer;';
+    thinkingToggle.style.cssText = 'margin-top: 10px; padding: 8px 15px; background-color: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; cursor: pointer; display: none; transition: background-color 0.2s;';
+    thinkingToggle.addEventListener('mouseover', () => {
+      thinkingToggle.style.backgroundColor = '#e4e4e4';
+    });
+    thinkingToggle.addEventListener('mouseout', () => {
+      thinkingToggle.style.backgroundColor = '#f1f1f1';
+    });
     thinkingToggle.addEventListener('click', () => {
       const aiThinking = document.getElementById('ai-thinking');
       if (aiThinking.style.display === 'none') {
@@ -225,6 +251,7 @@ function createPhaseIndicator() {
 
 
 function updatePhaseIndicator() {
+  console.log(`%c PHASE UPDATE: ${currentPhase.toUpperCase()} (Part ${currentPart + 1}) `, 'background: #4285f4; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;');
   PHASES.forEach(phase => {
     const phaseElement = document.getElementById(`phase-${phase.name}`);
     if (phaseElement) {
@@ -515,10 +542,23 @@ function handleCommandsReceived(result) {
     return;
   }
 
+  // Update current part information - critical fix for the sub-phase looping issue
+  if (result.current_part !== undefined) {
+    currentPart = result.current_part;
+    console.log(`Current part updated to: ${currentPart}`);
+  }
+  
+  // Update next part information
+  if (result.next_part !== undefined) {
+    nextPartToTransition = result.next_part;
+    console.log(`Next part will be: ${nextPartToTransition}`);
+  }
+
   // Update phase information
   if (result.next_phase && result.next_phase !== currentPhase) {
     // Store the next phase to transition to after processing commands
     nextPhaseToTransition = result.next_phase;
+    console.log(`Next phase will be: ${nextPhaseToTransition}`);
   } else {
     nextPhaseToTransition = null;
   }
@@ -533,12 +573,13 @@ function handleCommandsReceived(result) {
     const thinkingContainer = document.getElementById('ai-thinking');
     const thinkingToggle = document.getElementById('thinking-toggle');
     if (thinkingContainer) {
-      thinkingContainer.textContent = result.thinking;
-      thinkingContainer.style.display = 'block';
+      // Format the thinking content with proper HTML
+      thinkingContainer.innerHTML = `<pre style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(result.thinking)}</pre>`;
+      thinkingContainer.style.display = 'none'; // Start collapsed by default
     }
     if (thinkingToggle) {
       thinkingToggle.style.display = 'block';
-      thinkingToggle.textContent = 'Hide AI Thinking';
+      thinkingToggle.textContent = 'Show AI Thinking';
     }
   }
 
@@ -562,7 +603,6 @@ async function processNextCommand() {
     clearTimeout(drawingTimerId);
     drawingTimerId = null; // Set to null immediately.
   }
-
   console.log(`processNextCommand called. Queue length: ${commandQueue.length}, isDrawing: ${isDrawing}, phase: ${currentPhase}, part: ${currentPart}`);
 
   if (!commandQueue.length) {
@@ -572,14 +612,27 @@ async function processNextCommand() {
     if (nextPhaseToTransition) {
       console.log(`Transitioning to next phase: ${nextPhaseToTransition}`);
       setCurrentPhase(nextPhaseToTransition);
+      currentPart = 0; // Reset part when changing phase
       nextPhaseToTransition = null;
       updatePhaseIndicator();
       
       if (isDrawing) {
-        console.log(`Starting new phase: ${currentPhase}`);
+        console.log(`Starting new phase: ${currentPhase} (part ${currentPart})`);
         await getMoreCommands();
       }
-    } else if (isDrawing) {
+    } 
+    // If we need to transition to the next part within the same phase
+    else if (nextPartToTransition !== currentPart) {
+      console.log(`Transitioning to next part: ${nextPartToTransition} (within phase ${currentPhase})`);
+      currentPart = nextPartToTransition;
+      updatePhaseIndicator();
+      
+      if (isDrawing) {
+        console.log(`Continuing phase: ${currentPhase} (part ${currentPart})`);
+        await getMoreCommands();
+      }
+    }
+    else if (isDrawing) {
       console.log("Calling getMoreCommands from processNextCommand");
       await getMoreCommands();
     } else {
