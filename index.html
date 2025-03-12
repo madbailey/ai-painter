@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Drawing Canvas with API</title>
+    <style>
+        #canvas-container {
+            border: 1px solid black;
+            width: 500px;
+            height: 400px;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Drawing Canvas</h1>
+
+    <div id="canvas-container">
+        <canvas id="myCanvas" width="500" height="400"></canvas>
+    </div>
+
+    <label for="prompt">Prompt:</label>
+    <input type="text" id="prompt" placeholder="Enter drawing prompt...">
+
+    <div>
+        <button id="generate">Generate with Gemini</button> <!-Corrected ID-->
+        <button id="capture">Capture Image</button>
+        <button id="clear">Clear Canvas</button>
+    </div>
+
+    <a id="downloadLink" style="display:none;">Download Image</a>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,7 +1,8 @@
-flask
-torch
-transformers
-accelerate
-safetensors
-pillow
-lavis @ git+https://github.com/salesforce/LAVIS.git
+Flask
+flask_cors
+Pillow
+gunicorn  # Needed for Heroku deployment
+
+google-generativeai
+python-dotenv
+requests
