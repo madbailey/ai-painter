@@ -71,5 +71,5 @@ GENERATION_CONFIG = {
     "temperature": 0.4,  # Lower temperature for more deterministic output
     "top_p": 0.95,
     "top_k": 40,
-    "max_output_tokens": 2048,
+    "max_output_tokens": 4096,
 }

@@ -1,5 +1,5 @@
 """
-Prompt construction for different painting phases.
+Prompt construction for different painting phases with element-based approach.
 """
 
 from config.phases import PHASES
@@ -19,18 +19,31 @@ def get_initial_composition_prompt(prompt, history_text=""):
     current_part_info = current_phase["parts"][0]
     
     return [
-        "You are a digital painting assistant capable of creating expressive, painterly artwork. I will give you a prompt, and you will respond with a JSON array of drawing commands that creates organic, artistic strokes rather than rigid digital lines.",
+        "You are a digital painting assistant capable of creating expressive, MS Paint style artwork. Create simple, bold strokes that are fully opaque with bright colors. Avoid leaving white/blank space in your compositions. Your style resembles children's book illustrations - simple, colorful, and engaging.",
+        
         # Include command history if available
         history_text if history_text else "No previous commands recorded.",
-        "First, use <think></think> tags to reason about the drawing as a painter would. This is the COMPOSITION PHASE (Part 1), focused on establishing the basic structure and layout. Consider:",
-        " - What are the main elements of the composition and how should they be arranged?",
-        " - How will you establish the basic forms, proportions, and spatial relationships?",
-        " - What simple shapes will help build the foundation of the scene?",
-        " - How would a traditional artist start blocking in the main elements?",
+        
+        "This is the COMPOSITION PHASE (Part 1), focused on establishing the basic structure and layout.",
+        
+        "Use a three-stage thinking process:",
+        
+        "1. <think>Consider the input prompt and what your goals are for this drawing. What main elements should be included? What style and colors would work best?</think>",
+        
+        "2. <visualize>Imagine what you want the completed image to contain. Picture the final composition with all elements in place. How will they be arranged? What colors will dominate?</visualize>",
+        
+        "3. <decompose>Break down the image into a background and up to three main elements that can be created independently. Identify each element and how it will be positioned in relation to others.</decompose>",
         
         f"Phase Focus: {current_part_info['focus']}",
         
-        "After your reasoning, provide a JSON array of drawing commands. The valid commands are:",
+        "After your three-stage thinking process, provide JSON outputs for each element in separate tags:",
+        
+        "<background>JSON array of drawing commands for the background</background>",
+        "<element1>JSON array of drawing commands for the first main element</element1>",
+        "<element2>JSON array of drawing commands for the second main element (if applicable)</element2>",
+        "<element3>JSON array of drawing commands for the third main element (if applicable)</element3>",
+        
+        "The valid commands for each element are:",
         " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
         " - {'action': 'erase', 'points': [[x1, y1], [x2, y2], ...], 'width': 10}",
         " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue', 'texture': 'smooth'}",
@@ -38,10 +51,10 @@ def get_initial_composition_prompt(prompt, history_text=""):
         " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false, 'texture': 'smooth'}",
         
         "COMPOSITION PHASE Recommendations:",
-        " - Use light, sketchy strokes to establish proportions",
-        " - Focus on outlines and basic forms rather than details",
-        " - Use muted colors or grayscale for initial blocking",
-        " - Establish the horizon line and main spatial elements",
+        " - Use bold, simple strokes to establish shapes",
+        " - Cover the entire canvas, avoiding white/blank space",
+        " - Use bright, vibrant colors for visual appeal",
+        " - Create distinct elements that can be modified separately in later phases",
         
         "Brush types:",
         " - 'round': Creates tapered, organic strokes with varying width",
@@ -53,7 +66,7 @@ def get_initial_composition_prompt(prompt, history_text=""):
         "Here is the prompt:",
         prompt,
         
-        "Remember to use <think>your reasoning here</think> before your JSON response. Your final output should include both your thinking and the JSON array, but I will strip out the thinking part before processing.",
+        "Remember to organize your response with the three thinking stages followed by element-specific JSON outputs in their own tags.",
     ]
 
 def get_continuation_prompt(prompt, current_phase, current_part, image, history_text=""):
@@ -85,13 +98,16 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         history_text if history_text else "No previous commands recorded.",
     ]
     
-    # For first parts of each phase (excluding composition part 1)
+    # For first parts of each new phase (excluding composition part 1)
     if current_part == 0 and current_phase != 'composition':
         prompt_text.extend([
-            f"First, use <think></think> tags to analyze the current drawing as an artist would. This is the {phase_info['display_name'].upper()} PHASE (Part 1). Consider:",
-            " - What are the key elements already established in the drawing?",
-            " - How will you build upon the existing foundation?",
-            f" - What specific techniques will you use to accomplish the phase goal: {current_part_info['focus']}",
+            "Use the three-stage thinking process:",
+            
+            "1. <think>Consider the current state of the drawing and what improvements are needed for this phase. What elements need enhancement? How can you maintain the MS Paint style while advancing the drawing?</think>",
+            
+            "2. <visualize>Imagine how the drawing should evolve in this phase. What changes or additions will take it closer to the final vision?</visualize>",
+            
+            "3. <decompose>Identify specific areas or elements that need work. Break down your approach into modifications for the background and up to three main elements.</decompose>",
             
             f"{phase_info['display_name'].upper()} PHASE Recommendations:",
         ])
@@ -99,45 +115,52 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         # Phase-specific recommendations
         if current_phase == 'color_blocking':
             prompt_text.extend([
-                " - Use broader strokes with medium to large brushes",
-                " - Focus on establishing main color areas rather than blending",
-                " - Use flat brush for efficient coverage of larger areas",
-                " - Consider the overall color relationships and balance",
+                " - Use bold, vibrant colors to fill all areas",
+                " - Ensure no white/blank space remains visible",
+                " - Keep colors simple and distinct (MS Paint style)",
+                " - Maintain clear boundaries between different elements",
             ])
         elif current_phase == 'detailing':
             prompt_text.extend([
-                " - Use medium to small brushes for precise application",
-                " - Add shadows and mid-tones to create volume",
-                " - Refine edges between color areas",
-                " - Begin adding smaller elements and features",
+                " - Add simple details that enhance recognition of elements",
+                " - Use contrasting colors for details to make them pop",
+                " - Maintain the childlike simplicity of the style",
+                " - Add basic shadows or highlights with solid colors",
             ])
         else:  # final_touches
             prompt_text.extend([
-                " - Use small brushes for precise details",
-                " - Add highlights and reflections",
-                " - Enhance focal areas with additional detail",
-                " - Make subtle adjustments to color and contrast",
+                " - Add final defining details that complete the image",
+                " - Ensure all areas have appropriate coloring",
+                " - Reinforce the boundaries between elements",
+                " - Add simple decorative elements if appropriate",
             ])
     
-    # For second+ parts (diff-style refinement)
+    # For second+ parts (improvement and refinement)
     else:
         prompt_text.extend([
-            f"First, use <think></think> tags to critically analyze the current drawing. This is {phase_info['display_name'].upper()} PHASE (Part {current_part + 1}/{len(phase_info['parts'])}), focused on refinement and improvement.",
+            "Use the three-stage thinking process:",
             
-            "CAREFULLY EXAMINE THE CURRENT DRAWING AND IDENTIFY:",
-            " - What elements are working well and should be preserved?",
-            " - What specific areas need improvement or refinement?",
-            " - What elements are missing or inconsistent with the prompt?",
-            " - Where could you make targeted changes to significantly improve the artwork?",
+            "1. <think>Critically analyze the current drawing. What's working well? What specific areas need improvement?</think>",
+            
+            "2. <visualize>Imagine how targeted changes would improve the overall composition. How can you enhance the image while maintaining its MS Paint style simplicity?</visualize>",
+            
+            "3. <decompose>Identify specific elements that need refinement. What modifications will have the biggest impact?</decompose>",
             
             f"YOUR GOAL: {current_part_info['focus']}",
             
-            "IMPORTANT: Instead of redrawing everything, focus on making TARGETED MODIFICATIONS to specific areas that need improvement.",
+            "IMPORTANT: Focus on making TARGETED MODIFICATIONS to specific areas that need improvement rather than redrawing everything.",
         ])
     
-    # Command sets for all non-initial phases/parts
+    # Element-based outputs for all continuation prompts
     prompt_text.extend([
-        "After your analysis, provide a JSON array of drawing commands. Available commands include:",
+        "After your three-stage thinking process, provide JSON outputs for modifications to each element in separate tags:",
+        
+        "<background_mod>JSON array of drawing commands to modify the background</background_mod>",
+        "<element1_mod>JSON array of drawing commands to modify the first main element</element1_mod>",
+        "<element2_mod>JSON array of drawing commands to modify the second main element (if applicable)</element2_mod>",
+        "<element3_mod>JSON array of drawing commands to modify the third main element (if applicable)</element3_mod>",
+        
+        "Available commands include:",
         
         # Standard commands
         " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
@@ -145,7 +168,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false, 'texture': 'smooth'}",
         " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue', 'texture': 'smooth'}",
         
-        # Diff-style commands (for part 2+)
+        # Modification commands
         " - {'action': 'erase_area', 'x0': 100, 'y0': 100, 'x1': 200, 'y1': 200}",
         " - {'action': 'modify_color', 'target_color': '#FF0000', 'new_color': '#0000FF', 'area_x': 150, 'area_y': 150, 'radius': 50}",
         " - {'action': 'enhance_detail', 'x': 200, 'y': 200, 'radius': 20, 'technique': 'highlight', 'color': '#FFFFFF'}",
@@ -157,7 +180,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         " - 'flat': Creates angular, directional strokes like a flat brush",
         " - 'splatter': Creates a scattered, spray-like effect",
         
-        "Remember to use <think>your analysis here</think> before your JSON response.",
+        "Remember to organize your response with the three thinking stages followed by element-specific JSON outputs in their own tags.",
     ])
     
     return prompt_text
