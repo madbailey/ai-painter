@@ -18,12 +18,12 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash-002')
 
-# Configure Gemini with a timeout
+# Configure Gemini
 GENERATION_CONFIG = {
-    "temperature": 0.4,
+    "temperature": 0.4,  # Lower temperature for more deterministic output
     "top_p": 0.95,
     "top_k": 40,
-    "max_output_tokens": 2048
+    "max_output_tokens": 2048,
 }
 
 def data_uri_to_image(uri):
@@ -38,116 +38,65 @@ def image_to_data_uri(image, format="PNG"):
     return f"data:image/{format.lower()};base64,{img_str}"
 
 def clean_json_string(json_str):
-    """Clean up JSON string that might use single quotes instead of double quotes or contain markdown formatting"""
-    # Remove markdown code blocks if present
+    """Clean JSON string"""
     if '```' in json_str:
-        # First try extracting the content between ```json and ```
         pattern = r"```(?:json)?([\s\S]*?)```"
         matches = re.findall(pattern, json_str, re.DOTALL)
         if matches:
-            # Take the content of the first code block
             json_str = matches[0].strip()
         else:
-            # Fallback: just remove the ```json and ``` markers
-            json_str = json_str.replace("```json", "").replace("```", "").strip()
-    
-    # Check if the JSON uses single quotes instead of double quotes
+           json_str = json_str.replace("```json", "").replace("```", "").strip()
     if "'" in json_str and '"' not in json_str:
-        # Replace single quotes with double quotes for JSON compliance
         json_str = json_str.replace("'", '"')
-    
-    # Additional cleanup: remove any leading/trailing whitespace or newlines
+
     json_str = json_str.strip()
-    
-    # Debug print to see what we're trying to parse
     print(f"Cleaned JSON string: {json_str[:100]}...")
-    
-    # Try to validate the JSON before returning
     try:
-        # Test if it parses correctly
         json.loads(json_str)
     except json.JSONDecodeError as e:
-        print(f"Warning: Could not parse the cleaned JSON: {e}")
-        print(f"Full cleaned JSON string: {json_str}")
-    
+        print(f"Warning: Could not parse: {e}")
+        print(f"Full cleaned JSON: {json_str}")
     return json_str
 
 def process_drawing_command(image_data, command):
-    """Process a single drawing command and return the updated image data"""
+    """Process drawing command"""
     action = command.get('action', '')
-    start_x = int(command.get('start_x', 0))
-    start_y = int(command.get('start_y', 0))
-    end_x = int(command.get('end_x', 0))
-    end_y = int(command.get('end_y', 0))
-    
-    # Ensure coordinates are in the correct order (start < end)
-    if start_x > end_x:
-        start_x, end_x = end_x, start_x
-    if start_y > end_y:
-        start_y, end_y = end_y, start_y
-        
     img = data_uri_to_image(image_data)
     img = img.convert("RGBA")
     d = ImageDraw.Draw(img)
 
     try:
-        if action == 'draw_line':
-            d.line([(start_x, start_y), (end_x, end_y)], fill=(0, 0, 0, 255), width=2)
-        elif action == 'draw_rect':
-            d.rectangle([(start_x, start_y), (end_x, end_y)], outline=(0, 0, 0, 255), width=2)
-        elif action == 'draw_circle':
-            d.ellipse([(start_x, start_y), (end_x, end_y)], outline=(0, 0, 0, 255), width=2)
-        elif action == 'draw_triangle':
-            # Draw a triangle using three lines
-            # Calculate the third point (assuming an isosceles triangle)
-            third_x = end_x - (end_x - start_x)  # Reflect end_x around start_x
-            third_y = end_y
-            
-            # Draw the three sides of the triangle
-            d.line([(start_x, start_y), (end_x, end_y)], fill=(0, 0, 0, 255), width=2)
-            d.line([(end_x, end_y), (third_x, third_y)], fill=(0, 0, 0, 255), width=2)
-            d.line([(third_x, third_y), (start_x, start_y)], fill=(0, 0, 0, 255), width=2)
-        elif action == 'erase':
-            d.rectangle([(start_x, start_y), (end_x, end_y)], fill=(255, 255, 255, 255))
-        elif action == 'draw_arc':
-            # Treat arc as a partial circle/ellipse
-            d.arc([(start_x, start_y), (end_x, end_y)], 0, 180, fill=(0, 0, 0, 255), width=2)
+        if action == 'draw_polyline':
+            points_data = command.get('points', [])
+            if isinstance(points_data, str):
+                try:
+                    pairs = points_data.strip().replace(',', ' ').split()
+                    points = []
+                    for i in range(0, len(pairs), 2):
+                        if i+1 < len(pairs):
+                            points.append((float(pairs[i]), float(pairs[i+1])))
+                except:
+                    print(f"Error parsing points: {points_data}")
+                    points = []
+            else:
+                points = [(p[0], p[1]) for p in points_data if len(p) >= 2]
+            if len(points) > 1:
+                d.line(points, fill=(0, 0, 0, 255), width=2)
+
     except Exception as e:
-        print(f"Drawing error: {e} for command {action} with coords ({start_x}, {start_y}, {end_x}, {end_y})")
-        # Continue without crashing
-        pass
+        print(f"Drawing error: {e} for command {action}")
+        pass  # Don't crash on drawing errors
 
     return image_to_data_uri(img)
 
-@app.route('/draw', methods=['POST'])
-def draw():
-    """Draw a single command on an image"""
-    data = request.get_json()
-    image_data = data['image_data']
-    command = {
-        'action': data['action'],
-        'start_x': data.get('start_x', 0),
-        'start_y': data.get('start_y', 0),
-        'end_x': data.get('end_x', 0),
-        'end_y': data.get('end_y', 0)
-    }
-    
-    updated_image_data = process_drawing_command(image_data, command)
-    return jsonify({'image_data': updated_image_data})
-
 @app.route('/draw_command', methods=['POST'])
 def draw_command():
-    """Process a drawing command and return the updated image"""
+    """Process a drawing command"""
     data = request.get_json()
     command = data.get('command', {})
     image_data = data.get('image_data')
-    
-    if not image_data:
-        return jsonify({'error': 'No image data provided'}), 400
-    
-    if not command or 'action' not in command:
-        return jsonify({'error': 'Invalid command'}), 400
-        
+    if not image_data or not command or 'action' not in command:
+        return jsonify({'error': 'Invalid command or data'}), 400
     updated_image_data = process_drawing_command(image_data, command)
     return jsonify({'image_data': updated_image_data})
 
@@ -158,217 +107,76 @@ def get_commands():
     prompt = data.get('prompt')
     iteration = data.get('iteration', 0)
     current_image = data.get('current_image')
-    
+
     if not prompt:
         return jsonify({'error': 'No prompt provided'}), 400
-    
+
     try:
         if iteration == 0:
-            # First iteration - just use the prompt
-            response = model.generate_content(
-                [
-                    "You are a drawing assistant. I will give you a prompt, and you will respond with a JSON array of drawing commands. Each command is a dictionary. Valid commands are:",
-                    " - {'action': 'draw_line', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                    " - {'action': 'draw_rect', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                    " - {'action': 'draw_circle', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                    " - {'action': 'draw_triangle', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                    " - {'action': 'draw_arc', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                    "Here is the prompt:",
-                    prompt,
-                    "IMPORTANT: Respond with ONLY a JSON array and nothing else. Do NOT use markdown formatting or ```json code blocks. Just output the raw JSON array.",
-                ],
-                generation_config=GENERATION_CONFIG
-            )
+            # Initial prompt (only draw_polyline)
+            prompt_text = [
+                "You are a drawing assistant. I will give you a prompt, and you will respond with a JSON array of drawing commands. The ONLY valid command is:",
+                " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...]}  // Use an ARRAY of [x, y] pairs. Limit yourself to 10 points per polyline.",
+                "Here is the prompt:",
+                prompt,
+                "IMPORTANT: Return ONLY a JSON array and NOTHING else. No markdown.  Output ONLY the JSON.",
+            ]
         else:
-            # Subsequent iterations - use the image and prompt
+            # Iteration prompt (refined instructions)
             if not current_image:
-                return jsonify({'error': 'No current image provided for iteration'}), 400
-                
+                return jsonify({'error': 'No current image provided'}), 400
             img = data_uri_to_image(current_image)
             buffered = BytesIO()
             img.save(buffered, format="PNG")
-            image_part = {
-                "mime_type": "image/png",
-                "data": buffered.getvalue()
-            }
-            
-            response = model.generate_content(
-                [
-                    "Here is the original prompt:",
-                    prompt,
-                    "Here is the current state of the drawing:",
-                    image_part,
-                    "Your task is to provide the NEXT set of drawing commands as a JSON array. Valid commands are:",
-                    " - {\"action\": \"draw_line\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_rect\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_circle\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_triangle\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_arc\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    "CRUCIAL: Return ONLY the raw JSON array and NOTHING else. DO NOT include any text explanations or ```json code blocks. Just provide the BARE JSON array.",
-                ],
-                generation_config=GENERATION_CONFIG
-            )
-        
+            image_part = {"mime_type": "image/png", "data": buffered.getvalue()}
+
+            # Create a description of the current state
+            if iteration == 1:
+                description = "The drawing currently contains a few disconnected lines."
+            elif iteration == 2:
+                description = "The drawing has some lines that are starting to resemble the desired shape, but it needs refinement."
+            elif iteration == 3:
+                description = "The drawing is closer, but still needs significant improvement in connecting and shaping the lines."
+            else:
+                description = "The drawing is an attempt, but needs further adjustments."
+
+            prompt_text = [
+                "Here is the original prompt:",
+                prompt,
+                "Here is the current drawing:",
+                image_part,
+                f"The current state of the drawing is: {description}", # Add the description
+                "Provide the NEXT set of drawing commands as a JSON array. The ONLY valid command is:",
+                " - {\"action\": \"draw_polyline\", \"points\": [[x1, y1], [x2, y2], ...]} // Limit to 10 points per polyline.",
+                f"For this iteration ({iteration}), focus on: ",
+                # Specific instructions based on iteration (examples)
+                " - Connecting existing lines to form closed shapes." if iteration < 3 else  " - Refining the shape and adding details." ,
+                "CRUCIAL: Return ONLY the JSON array. No markdown. JUST the JSON.",
+            ]
+
+        response = model.generate_content(prompt_text, generation_config=GENERATION_CONFIG)
         print(f"Raw Gemini Response (Iteration {iteration}):")
         print(response.text)
-        
-        # Clean and parse the JSON
         commands_str = clean_json_string(response.text)
-        
+
         try:
             commands = json.loads(commands_str)
-            
             if not isinstance(commands, list):
                 raise ValueError("Response is not a JSON array")
-                
-            # Return the parsed commands
-            return jsonify({
-                'commands': commands,
-                'iteration': iteration + 1,
-                'has_more': iteration < 5  # Limit to 2 iterations
-            })
+            return jsonify({'commands': commands, 'iteration': iteration + 1, 'has_more': iteration < 5})  # Limit iterations
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
-            # Try a more aggressive cleaning approach
+            # Attempt aggressive cleaning
             clean_attempt = re.sub(r'[^{}[\],:"0-9a-zA-Z_\-\.\s]', '', commands_str)
-            print(f"Aggressive cleaning attempt: {clean_attempt[:100]}...")
-            
+            print(f"Aggressive clean: {clean_attempt[:100]}...")
             try:
                 commands = json.loads(clean_attempt)
-                return jsonify({
-                    'commands': commands,
-                    'iteration': iteration + 1,
-                    'has_more': iteration < 5
-                })
+                return jsonify({'commands': commands, 'iteration': iteration + 1, 'has_more': iteration < 5})
             except:
-                # If that fails too, use the fallback
-                raise ValueError(f"Could not parse the JSON: {e}")
-        
-    except Exception as e:
-        print(f"Error getting commands: {e}")
-        return jsonify({'error': str(e)}), 500
+                raise ValueError(f"Could not parse JSON: {e}")
 
-@app.route('/generate', methods=['POST'])
-def generate():
-    """Generate a complete drawing directly"""
-    data = request.get_json()
-    prompt = data.get('prompt')
-    
-    if not prompt:
-        return jsonify({'error': 'No prompt provided'}), 400
-    
-    # Start with a blank canvas
-    canvas_width = 500
-    canvas_height = 400
-    img = Image.new("RGBA", (canvas_width, canvas_height), (255, 255, 255, 255))
-    image_data = image_to_data_uri(img)
-    
-    # Store the drawing sequence for animation
-    drawing_sequence = [image_data]
-    all_commands = []
-    
-    try:
-        # Get initial commands
-        response = model.generate_content(
-            [
-                "You are a drawing assistant. I will give you a prompt, and you will respond with a JSON array of drawing commands. Each command is a dictionary. Valid commands are:",
-                " - {'action': 'draw_line', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                " - {'action': 'draw_rect', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                " - {'action': 'draw_circle', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                " - {'action': 'draw_triangle', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                " - {'action': 'draw_arc', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
-                "Here is the prompt:",
-                prompt,
-                "Respond with a JSON array and *nothing* else. Use double quotes for property names and string values, not single quotes. The response must be pure JSON. DO NOT include ```json or any markdown formatting.",
-            ],
-            generation_config=GENERATION_CONFIG
-        )
-        
-        print("Raw Gemini Response (First Iteration):")
-        print(response.text)
-        
-        # Process the first set of commands
-        try:
-            # Parse the commands
-            commands_str = clean_json_string(response.text)
-            commands = json.loads(commands_str)
-            
-            if not isinstance(commands, list):
-                raise ValueError("Gemini did not return a JSON array.")
-            
-            # Process each command in sequence
-            for command in commands:
-                # Update the image data with this command
-                image_data = process_drawing_command(image_data, command)
-                # Add to the sequence for animation
-                drawing_sequence.append(image_data)
-            
-            all_commands.extend(commands)
-            
-            # Get a second iteration of commands
-            img_for_gemini = data_uri_to_image(image_data)
-            buffered = BytesIO()
-            img_for_gemini.save(buffered, format="PNG")
-            image_part = {
-                "mime_type": "image/png",
-                "data": buffered.getvalue()
-            }
-            
-            response2 = model.generate_content(
-                [
-                    "Here is the original prompt:",
-                    prompt,
-                    "Here is the current state of the drawing:",
-                    image_part,
-                    "Provide the *next* set of drawing commands as a JSON array. Use ONLY these exact formats with DOUBLE QUOTES, not single quotes:",
-                    " - {\"action\": \"draw_line\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_rect\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_circle\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_triangle\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    " - {\"action\": \"draw_arc\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    "Respond ONLY with the JSON array. DO NOT include any markdown formatting like ```json. Return JUST the array.",
-                ],
-                generation_config=GENERATION_CONFIG
-            )
-            
-            print("Raw Gemini Response (Second Iteration):")
-            print(response2.text)
-            
-            # Process the second set of commands
-            try:
-                # Parse the commands
-                commands_str2 = clean_json_string(response2.text)
-                commands2 = json.loads(commands_str2)
-                
-                if not isinstance(commands2, list):
-                    raise ValueError("Gemini did not return a JSON array in second iteration.")
-                
-                # Process each command in sequence
-                for command in commands2:
-                    # Update the image data with this command
-                    image_data = process_drawing_command(image_data, command)
-                    # Add to the sequence for animation
-                    drawing_sequence.append(image_data)
-                
-                all_commands.extend(commands2)
-                
-            except Exception as e:
-                print(f"Error processing second iteration: {e}")
-                # Continue with just the first iteration results
-        
-        except Exception as e:
-            print(f"Error processing first iteration: {e}")
-            return jsonify({'error': f"Error processing drawing commands: {str(e)}"}), 500
-        
-        # Return the final image and the sequence for animation
-        return jsonify({
-            'image_data': image_data,
-            'drawing_sequence': drawing_sequence,
-            'commands': all_commands
-        })
-        
     except Exception as e:
-        print(f"Error generating drawing: {e}")
+        print(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
