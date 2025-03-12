@@ -278,15 +278,25 @@ def get_commands():
     prompt = data.get('prompt')
     iteration = data.get('iteration', 0)
     current_image = data.get('current_image')
+    command_history = data.get('command_history', [])
 
     if not prompt:
         return jsonify({'error': 'No prompt provided'}), 400
 
     try:
         if iteration == 0:
+            # Format the command history for readability
+            history_text = ""
+            if command_history and len(command_history) > 0:
+                history_text = "Previous drawing commands:\n"
+                for i, cmd in enumerate(command_history):
+                    history_text += f"{i+1}. {json.dumps(cmd)}\n"
+                    
             # Initial prompt with expanded command set and reasoning in thinking tags
             prompt_text = [
                 "You are a drawing assistant. I will give you a prompt, and you will respond with a JSON array of drawing commands after carefully reasoning about what to draw.",
+                # Include command history if available
+                history_text if history_text else "No previous commands recorded.",
                 "First, use <think></think> tags to reason about the drawing. Consider:",
                 " - What are the main elements needed for this drawing?",
                 " - How would you position these elements on a 500x400 canvas?",
@@ -313,6 +323,13 @@ def get_commands():
             img.save(buffered, format="PNG")
             image_part = {"mime_type": "image/png", "data": buffered.getvalue()}
 
+            # Format the command history for readability
+            history_text = ""
+            if command_history and len(command_history) > 0:
+                history_text = "Previous drawing commands:\n"
+                for i, cmd in enumerate(command_history):
+                    history_text += f"{i+1}. {json.dumps(cmd)}\n"
+            
             # Create a description of the current state
             if iteration == 1:
                 description = "The drawing currently contains basic shapes."
@@ -329,6 +346,8 @@ def get_commands():
                 "Here is the current drawing:",
                 image_part,
                 f"The current state of the drawing is: {description}", # Add the description
+                # Include command history if available
+                history_text if history_text else "No previous commands recorded.",
                 "First, use <think></think> tags to analyze the current drawing and reason about what to add or improve. Consider:",
                 " - What elements from the prompt are missing or need enhancement?",
                 " - How can you build upon what's already drawn?",

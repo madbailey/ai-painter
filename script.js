@@ -31,6 +31,9 @@ let brushSize = 2;
 let fillShapes = false;
 let drawingMode = 'ai'; // 'ai' or 'manual'
 
+// Initialize polyline tracking
+window.currentPolyline = null;
+
 // Shape drawing state
 let startX = 0;
 let startY = 0;
@@ -62,6 +65,7 @@ let commandQueue = [];
 let currentIteration = 0;
 let prompt = '';
 let drawingTimerId = null;
+let commandHistory = []; // Add this array to store command history
 
 async function processNextCommand() {
     // ALWAYS clear the timer at the VERY BEGINNING.
@@ -87,6 +91,9 @@ async function processNextCommand() {
 
     const command = commandQueue.shift();
     console.log("Processing command:", command);
+    
+    // Add command to history
+    commandHistory.push(command);
 
     try {
         const response = await fetch(`${API_BASE_URL}/draw_command`, {
@@ -149,7 +156,12 @@ async function getMoreCommands() {
         const response = await fetch(`${API_BASE_URL}/get_commands`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: prompt, iteration: currentIteration, current_image: currentImageData })
+            body: JSON.stringify({ 
+                prompt: prompt, 
+                iteration: currentIteration, 
+                current_image: currentImageData,
+                command_history: commandHistory // Send the command history
+            })
         });
 
         if (!response.ok) {
@@ -224,6 +236,10 @@ function startDraw(e) {
             color: currentColor
         };
         
+        // Add fill command to history
+        commandHistory.push(command);
+        console.log("Added fill command to history:", command);
+        
         // Save current canvas state before fill
         currentImageData = canvas.toDataURL('image/png');
         
@@ -276,6 +292,30 @@ function draw(e) {
         
         ctx.stroke();
         
+        // Track line segments for command history
+        if (!window.currentPolyline) {
+            window.currentPolyline = {
+                action: currentTool === 'eraser' ? 'erase' : 'draw_polyline',
+                points: [[lastX, lastY]],
+                color: currentTool === 'eraser' ? 'white' : currentColor,
+                width: brushSize
+            };
+        }
+        
+        // Add point to current polyline (limiting to avoid too many points)
+        if (window.currentPolyline.points.length < 20) {
+            window.currentPolyline.points.push([x, y]);
+        } else if (window.currentPolyline.points.length === 20) {
+            // If we reach 20 points, finish this polyline and start a new one
+            commandHistory.push(window.currentPolyline);
+            window.currentPolyline = {
+                action: currentTool === 'eraser' ? 'erase' : 'draw_polyline',
+                points: [[x, y]],
+                color: currentTool === 'eraser' ? 'white' : currentColor,
+                width: brushSize
+            };
+        }
+        
         lastX = x;
         lastY = y;
     } else if (currentTool === 'rect' || currentTool === 'circle') {
@@ -323,7 +363,54 @@ function draw(e) {
 function endDraw() {
     if (drawingMode !== 'manual') return;
     
-    if (isDrawingManual && (currentTool === 'rect' || currentTool === 'circle')) {
+    if (isDrawingManual) {
+        // Handle polyline commands
+        if ((currentTool === 'brush' || currentTool === 'eraser') && window.currentPolyline) {
+            // Add the current polyline to the command history
+            if (window.currentPolyline.points.length > 1) {
+                commandHistory.push(window.currentPolyline);
+                console.log("Added polyline to history:", window.currentPolyline);
+            }
+            window.currentPolyline = null;
+        }
+        
+        // Handle shape commands
+        if (currentTool === 'rect' || currentTool === 'circle') {
+            let manualCommand = null;
+            
+            if (currentTool === 'rect') {
+                manualCommand = {
+                    action: 'draw_rect',
+                    x0: startX,
+                    y0: startY,
+                    x1: lastX,
+                    y1: lastY,
+                    color: currentColor,
+                    width: brushSize,
+                    fill: fillShapes
+                };
+            } else if (currentTool === 'circle') {
+                const radius = Math.max(
+                    Math.abs(lastX - startX),
+                    Math.abs(lastY - startY)
+                );
+                manualCommand = {
+                    action: 'draw_circle',
+                    x: startX,
+                    y: startY,
+                    radius: radius,
+                    color: currentColor,
+                    width: brushSize,
+                    fill: fillShapes
+                };
+            }
+            
+            if (manualCommand) {
+                commandHistory.push(manualCommand);
+                console.log("Added manual command to history:", manualCommand);
+            }
+        }
+        
         // Update the current image data to include the shape
         currentImageData = canvas.toDataURL('image/png');
     }
@@ -401,6 +488,7 @@ generateBtn.addEventListener('click', async () => {
     isDrawing = true;
     currentIteration = 0;
     commandQueue = [];
+    commandHistory = []; // Clear command history for new drawing
     if (drawingTimerId) {
         clearTimeout(drawingTimerId);
         drawingTimerId = null;
@@ -417,8 +505,10 @@ generateBtn.addEventListener('click', async () => {
     
     if (isEmpty) {
         setStatus('Getting initial commands...', 'loading');
+        commandHistory = []; // Clear history for a blank canvas
     } else {
         setStatus('Enhancing your drawing...', 'loading');
+        // If we're enhancing, we keep the existing command history
     }
 
     try {
