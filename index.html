@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Drawing Canvas</title>
+    <title>Paint Copilot</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -14,7 +14,7 @@
         h1 {
             text-align: center;
             color: #333;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         
         #canvas-container {
@@ -159,17 +159,191 @@
             color: #666;
             font-size: 14px;
         }
+        
+        /* New styles for toolbox */
+        .toolbox {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 15px;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .tool {
+            padding: 8px 12px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .tool:hover {
+            background-color: #e9e9e9;
+        }
+        
+        .tool.active {
+            background-color: #4285f4;
+            color: white;
+            border-color: #4285f4;
+        }
+        
+        .tool-icon {
+            font-size: 18px;
+            margin-right: 5px;
+        }
+        
+        .color-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        
+        .color-option {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 1px solid #ccc;
+            cursor: pointer;
+        }
+        
+        .color-option.active {
+            border: 2px solid #333;
+            transform: scale(1.1);
+        }
+        
+        .size-picker {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+        }
+        
+        .size-label {
+            margin-right: 10px;
+            font-weight: bold;
+            min-width: 80px;
+        }
+        
+        input[type="range"] {
+            flex: 1;
+        }
+        
+        .manual-drawing-controls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        
+        .ai-drawing-controls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        
+        .drawing-mode-toggle {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        
+        .mode-button {
+            padding: 8px 15px;
+            background-color: #f1f1f1;
+            border: 1px solid #ddd;
+            color: #333;
+            cursor: pointer;
+        }
+        
+        .mode-button:first-child {
+            border-radius: 4px 0 0 4px;
+        }
+        
+        .mode-button:last-child {
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .mode-button.active {
+            background-color: #4285f4;
+            color: white;
+            border-color: #4285f4;
+        }
     </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
 </head>
 <body>
     <h1>Paint Copilot</h1>
+    
+    <div class="drawing-mode-toggle">
+        <div class="mode-button active" data-mode="ai">AI Drawing</div>
+        <div class="mode-button" data-mode="manual">Manual Drawing</div>
+    </div>
 
     <div id="canvas-container">
         <canvas id="myCanvas" width="500" height="400"></canvas>
     </div>
+    
+    <div id="manual-tools" style="display: none;">
+        <div class="toolbox">
+            <div class="tool active" data-tool="brush">
+                <i class="fas fa-paint-brush tool-icon"></i> Brush
+            </div>
+            <div class="tool" data-tool="eraser">
+                <i class="fas fa-eraser tool-icon"></i> Eraser
+            </div>
+            <div class="tool" data-tool="fill">
+                <i class="fas fa-fill-drip tool-icon"></i> Fill
+            </div>
+            <div class="tool" data-tool="rect">
+                <i class="far fa-square tool-icon"></i> Rectangle
+            </div>
+            <div class="tool" data-tool="circle">
+                <i class="far fa-circle tool-icon"></i> Circle
+            </div>
+        </div>
+        
+        <div class="color-picker">
+            <div class="color-option active" style="background-color: #000000;" data-color="#000000"></div>
+            <div class="color-option" style="background-color: #ff0000;" data-color="#ff0000"></div>
+            <div class="color-option" style="background-color: #0000ff;" data-color="#0000ff"></div>
+            <div class="color-option" style="background-color: #008000;" data-color="#008000"></div>
+            <div class="color-option" style="background-color: #ffff00;" data-color="#ffff00"></div>
+            <div class="color-option" style="background-color: #800080;" data-color="#800080"></div>
+            <div class="color-option" style="background-color: #ffa500;" data-color="#ffa500"></div>
+            <div class="color-option" style="background-color: #ffffff;" data-color="#ffffff"></div>
+        </div>
+        
+        <div class="size-picker">
+            <span class="size-label">Brush Size:</span>
+            <input type="range" id="brush-size" min="1" max="30" value="2">
+            <span id="size-value">2</span>
+        </div>
+        
+        <div class="size-picker">
+            <span class="size-label">Fill:</span>
+            <input type="checkbox" id="fill-toggle">
+            <span>Fill shapes</span>
+        </div>
+        
+        <div class="button-group">
+            <button id="manual-clear">Clear Canvas</button>
+            <button id="manual-save">Save Image</button>
+        </div>
+    </div>
 
-    <div class="controls">
-        <label for="prompt">What would you like to:</label>
+    <div class="controls" id="ai-tools">
+        <label for="prompt">What would you like to draw:</label>
         <input type="text" id="prompt" placeholder="Example: a house with a tree, a car, and a sun in the sky">
         
         <div class="button-group">
@@ -180,7 +354,6 @@
         
         <div id="status"></div>
     </div>
-
 
     <a id="downloadLink" style="display:none;">Download Image</a>
 
