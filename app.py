@@ -62,6 +62,14 @@ def clean_json_string(json_str):
     # Debug print to see what we're trying to parse
     print(f"Cleaned JSON string: {json_str[:100]}...")
     
+    # Try to validate the JSON before returning
+    try:
+        # Test if it parses correctly
+        json.loads(json_str)
+    except json.JSONDecodeError as e:
+        print(f"Warning: Could not parse the cleaned JSON: {e}")
+        print(f"Full cleaned JSON string: {json_str}")
+    
     return json_str
 
 def process_drawing_command(image_data, command):
@@ -167,7 +175,7 @@ def get_commands():
                     " - {'action': 'draw_arc', 'start_x': int, 'start_y': int, 'end_x': int, 'end_y': int}",
                     "Here is the prompt:",
                     prompt,
-                    "Respond with a JSON array and *nothing* else. Use double quotes for property names and string values, not single quotes. The response must be pure JSON. DO NOT include ```json or any markdown formatting.",
+                    "IMPORTANT: Respond with ONLY a JSON array and nothing else. Do NOT use markdown formatting or ```json code blocks. Just output the raw JSON array.",
                 ],
                 generation_config=GENERATION_CONFIG
             )
@@ -190,13 +198,13 @@ def get_commands():
                     prompt,
                     "Here is the current state of the drawing:",
                     image_part,
-                    "Provide the *next* set of drawing commands as a JSON array. Use ONLY these exact formats with DOUBLE QUOTES, not single quotes:",
+                    "Your task is to provide the NEXT set of drawing commands as a JSON array. Valid commands are:",
                     " - {\"action\": \"draw_line\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
                     " - {\"action\": \"draw_rect\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
                     " - {\"action\": \"draw_circle\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
                     " - {\"action\": \"draw_triangle\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
                     " - {\"action\": \"draw_arc\", \"start_x\": int, \"start_y\": int, \"end_x\": int, \"end_y\": int}",
-                    "Respond ONLY with the JSON array. DO NOT include any markdown formatting like ```json. Return JUST the array.",
+                    "CRUCIAL: Return ONLY the raw JSON array and NOTHING else. DO NOT include any text explanations or ```json code blocks. Just provide the BARE JSON array.",
                 ],
                 generation_config=GENERATION_CONFIG
             )
@@ -206,42 +214,39 @@ def get_commands():
         
         # Clean and parse the JSON
         commands_str = clean_json_string(response.text)
-        commands = json.loads(commands_str)
         
-        if not isinstance(commands, list):
-            raise ValueError("Response is not a JSON array")
+        try:
+            commands = json.loads(commands_str)
             
-        # Return the parsed commands
-        return jsonify({
-            'commands': commands,
-            'iteration': iteration + 1,
-            'has_more': iteration < 1  # Limit to 2 iterations
-        })
+            if not isinstance(commands, list):
+                raise ValueError("Response is not a JSON array")
+                
+            # Return the parsed commands
+            return jsonify({
+                'commands': commands,
+                'iteration': iteration + 1,
+                'has_more': iteration < 5  # Limit to 2 iterations
+            })
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
+            # Try a more aggressive cleaning approach
+            clean_attempt = re.sub(r'[^{}[\],:"0-9a-zA-Z_\-\.\s]', '', commands_str)
+            print(f"Aggressive cleaning attempt: {clean_attempt[:100]}...")
+            
+            try:
+                commands = json.loads(clean_attempt)
+                return jsonify({
+                    'commands': commands,
+                    'iteration': iteration + 1,
+                    'has_more': iteration < 5
+                })
+            except:
+                # If that fails too, use the fallback
+                raise ValueError(f"Could not parse the JSON: {e}")
         
     except Exception as e:
         print(f"Error getting commands: {e}")
-        
-        # Return a fallback set of commands
-        fallback_commands = []
-        if iteration == 0:
-            fallback_commands = [
-                {"action": "draw_circle", "start_x": 150, "start_y": 100, "end_x": 250, "end_y": 200},
-                {"action": "draw_circle", "start_x": 180, "start_y": 130, "end_x": 190, "end_y": 140},
-                {"action": "draw_circle", "start_x": 210, "start_y": 130, "end_x": 220, "end_y": 140},
-                {"action": "draw_arc", "start_x": 180, "start_y": 150, "end_x": 220, "end_y": 170}
-            ]
-        else:
-            fallback_commands = [
-                {"action": "draw_line", "start_x": 150, "start_y": 150, "end_x": 250, "end_y": 150},
-                {"action": "draw_rect", "start_x": 140, "start_y": 90, "end_x": 260, "end_y": 210}
-            ]
-            
-        return jsonify({
-            'commands': fallback_commands,
-            'iteration': iteration + 1,
-            'has_more': iteration < 1,
-            'fallback': True
-        })
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/generate', methods=['POST'])
 def generate():
