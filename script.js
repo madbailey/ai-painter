@@ -1,3 +1,4 @@
+// Initialize canvas and UI elements
 const canvas = document.getElementById('myCanvas');
 const ctx = canvas.getContext('2d');
 const promptInput = document.getElementById('prompt');
@@ -20,6 +21,53 @@ const manualTools = document.getElementById('manual-tools');
 // Tool selection
 const tools = document.querySelectorAll('.tool');
 const colorOptions = document.querySelectorAll('.color-option');
+
+// Initialize drawing worker if supported
+let drawingWorker = null;
+if (window.Worker) {
+  try {
+    drawingWorker = new Worker('drawing-worker.js');
+    console.log('Drawing worker initialized');
+    
+    // Set up worker message handling
+    drawingWorker.onmessage = function(e) {
+      const { type, data, error } = e.data;
+      
+      switch (type) {
+        case 'init_complete':
+          console.log('Worker initialization complete');
+          break;
+          
+        case 'command_processed':
+          handleCommandProcessed(data.command, data.imageData);
+          break;
+          
+        case 'commands_received':
+          handleCommandsReceived(data);
+          break;
+          
+        case 'error':
+          console.error('Worker error:', error);
+          setStatus(`Error: ${error}`, 'error');
+          isDrawing = false;
+          break;
+      }
+    };
+    
+    // Initialize worker with API base URL
+    drawingWorker.postMessage({
+      type: 'init',
+      data: {
+        apiBaseUrl: 'http://127.0.0.1:5000'
+      }
+    });
+  } catch (error) {
+    console.error('Failed to initialize drawing worker:', error);
+    drawingWorker = null;
+  }
+} else {
+  console.log('Web Workers not supported in this browser. Falling back to direct API calls.');
+}
 
 //phase definitions
 const PHASES = [
@@ -414,101 +462,183 @@ function updateBrushPreview() {
 }
 
 
+/**
+ * Handle processed command result from worker
+ * @param {Object} command - The drawing command that was processed
+ * @param {string} updatedImageData - Updated image data URI
+ */
+function handleCommandProcessed(command, updatedImageData) {
+  if (!updatedImageData) {
+    console.error('No updated image data received');
+    return;
+  }
+  
+  currentImageData = updatedImageData;
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    console.log("Image updated. Scheduling next command.");
+    
+    // Only set the timeout if the queue is NOT empty
+    if (commandQueue.length > 0) {
+      drawingTimerId = setTimeout(processNextCommand, 200);
+    } else {
+      // If the queue IS empty, processNextCommand will handle phase transitions
+      processNextCommand();
+    }
+  };
+  
+  img.onerror = () => {
+    console.error('Error loading image');
+    if (commandQueue.length > 0) {
+      drawingTimerId = setTimeout(processNextCommand, 200);
+    } else {
+      processNextCommand();
+    }
+  };
+  
+  img.src = currentImageData;
+}
+
+/**
+ * Handle commands received from AI
+ * @param {Object} result - Result data from the worker
+ */
+function handleCommandsReceived(result) {
+  console.log("getMoreCommands result:", result);
+
+  if (result.error) {
+    console.error('Server error:', result.error);
+    setStatus(`Error: ${result.error}`, 'error');
+    isDrawing = false;
+    return;
+  }
+
+  // Update phase information
+  if (result.next_phase && result.next_phase !== currentPhase) {
+    // Store the next phase to transition to after processing commands
+    nextPhaseToTransition = result.next_phase;
+  } else {
+    nextPhaseToTransition = null;
+  }
+
+  if (!result.has_more) {
+    console.log("has_more is false. Setting isDrawing to false.");
+    isDrawing = false;
+  }
+
+  // Update the thinking container if available
+  if (result.thinking) {
+    const thinkingContainer = document.getElementById('ai-thinking');
+    const thinkingToggle = document.getElementById('thinking-toggle');
+    if (thinkingContainer) {
+      thinkingContainer.textContent = result.thinking;
+      thinkingContainer.style.display = 'block';
+    }
+    if (thinkingToggle) {
+      thinkingToggle.style.display = 'block';
+      thinkingToggle.textContent = 'Hide AI Thinking';
+    }
+  }
+
+  commandQueue = [...commandQueue, ...result.commands];
+  console.log(`Commands added to queue. New queue length: ${commandQueue.length}`);
+
+  updatePhaseIndicator();
+
+  // Only call processNextCommand if drawingTimerId is null AND the queue is not empty
+  if (drawingTimerId === null && commandQueue.length > 0) {
+    console.log("drawingTimerId is null and queue has commands. Starting processNextCommand.");
+    processNextCommand();
+  } else {
+    console.log("drawingTimerId exists or queue is empty, not starting processNextCommand.");
+  }
+}
+
 async function processNextCommand() {
   // ALWAYS clear the timer 
   if (drawingTimerId) {
-      clearTimeout(drawingTimerId);
-      drawingTimerId = null; // Set to null immediately.
+    clearTimeout(drawingTimerId);
+    drawingTimerId = null; // Set to null immediately.
   }
 
   console.log(`processNextCommand called. Queue length: ${commandQueue.length}, isDrawing: ${isDrawing}, phase: ${currentPhase}`);
 
   if (!commandQueue.length) {
-      console.log("Command queue is empty.");
+    console.log("Command queue is empty.");
+    
+    // If we have a next phase to transition to, do it now
+    if (nextPhaseToTransition) {
+      console.log(`Transitioning to next phase: ${nextPhaseToTransition}`);
+      setCurrentPhase(nextPhaseToTransition);
+      nextPhaseToTransition = null;
+      updatePhaseIndicator();
       
-      // If we have a next phase to transition to, do it now
-      if (nextPhaseToTransition) {
-          console.log(`Transitioning to next phase: ${nextPhaseToTransition}`);
-          setCurrentPhase(nextPhaseToTransition);
-          nextPhaseToTransition = null;
-          updatePhaseIndicator();
-          
-          if (isDrawing) {
-              console.log(`Starting new phase: ${currentPhase}`);
-              await getMoreCommands();
-          }
-      } else if (isDrawing) {
-          console.log("Calling getMoreCommands from processNextCommand");
-          await getMoreCommands();
-      } else {
-          console.log("isDrawing is false, not getting more commands.");
-          const finalPhase = PHASES[PHASES.length - 1].name;
-          if (currentPhase === finalPhase) {
-              setStatus('Drawing complete!', 'success');
-          } else {
-              setStatus(`Phase ${currentPhase} complete. Click Generate to continue to next phase.`, 'success');
-          }
+      if (isDrawing) {
+        console.log(`Starting new phase: ${currentPhase}`);
+        await getMoreCommands();
       }
-      return;
+    } else if (isDrawing) {
+      console.log("Calling getMoreCommands from processNextCommand");
+      await getMoreCommands();
+    } else {
+      console.log("isDrawing is false, not getting more commands.");
+      const finalPhase = PHASES[PHASES.length - 1].name;
+      if (currentPhase === finalPhase) {
+        setStatus('Drawing complete!', 'success');
+      } else {
+        setStatus(`Phase ${currentPhase} complete. Click Generate to continue to next phase.`, 'success');
+      }
+    }
+    return;
   }
 
-  // Rest of the function remains mostly the same
+  // Get the next command from the queue
   const command = commandQueue.shift();
   console.log("Processing command:", command);
   
   // Add command to history
   commandHistory.push(command);
 
-  try {
+  // Process the command using the worker if available, otherwise fallback to direct API call
+  if (drawingWorker) {
+    drawingWorker.postMessage({
+      type: 'process_command',
+      data: {
+        command: command,
+        imageData: currentImageData
+      }
+    });
+  } else {
+    // Fallback to direct API call if worker is not available
+    try {
       const response = await fetch(`${API_BASE_URL}/draw_command`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: command, image_data: currentImageData })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: command, image_data: currentImageData })
       });
 
       if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const result = await response.json();
       console.log("Draw command result:", result);
 
       if (result.error) {
-          console.error('Server error:', result.error);
+        console.error('Server error:', result.error);
       } else {
-          currentImageData = result.image_data;
-          const img = new Image();
-          img.onload = () => {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0);
-              console.log("Image updated. Scheduling next command.");
-              // Only set the timeout if the queue is NOT empty
-              if(commandQueue.length > 0){
-                  drawingTimerId = setTimeout(processNextCommand, 200);
-              } else {
-                  // If the queue IS empty, processNextCommand will be called again
-                  // and will handle phase transitions
-                  processNextCommand();
-              }
-          };
-          img.onerror = () => {
-              console.error('Error loading image');
-              if(commandQueue.length > 0){
-                  drawingTimerId = setTimeout(processNextCommand, 200);
-              } else {
-                  processNextCommand();
-              }
-          };
-          img.src = currentImageData;
+        handleCommandProcessed(command, result.image_data);
       }
-
-  } catch (error) {
+    } catch (error) {
       console.error('Error executing command:', error);
-      if(commandQueue.length > 0){
-          drawingTimerId = setTimeout(processNextCommand, 200);
+      if (commandQueue.length > 0) {
+        drawingTimerId = setTimeout(processNextCommand, 200);
       } else {
-          processNextCommand();
+        processNextCommand();
       }
+    }
   }
 }
 
@@ -516,64 +646,42 @@ async function getMoreCommands() {
   console.log(`getMoreCommands called. Phase: ${currentPhase}, isDrawing: ${isDrawing}`);
 
   try {
-      const currentPhaseObj = PHASES.find(p => p.name === currentPhase);
-      setStatus(`Working on ${currentPhaseObj.displayName}...`, 'loading');
+    const currentPhaseObj = PHASES.find(p => p.name === currentPhase);
+    setStatus(`Working on ${currentPhaseObj.displayName}...`, 'loading');
 
+    const requestData = { 
+      prompt: prompt, 
+      phase: currentPhase,
+      part: currentPart,
+      current_image: currentImageData,
+      command_history: commandHistory
+    };
+
+    // Use the worker if available, otherwise fallback to direct API call
+    if (drawingWorker) {
+      drawingWorker.postMessage({
+        type: 'get_commands',
+        data: requestData
+      });
+    } else {
+      // Fallback to direct API call
       const response = await fetch(`${API_BASE_URL}/get_commands`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-              prompt: prompt, 
-              phase: currentPhase,
-              current_image: currentImageData,
-              command_history: commandHistory
-          })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
       });
 
       if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log("getMoreCommands result:", result);
-
-      if (result.error) {
-          console.error('Server error:', result.error);
-          setStatus(`Error: ${result.error}`, 'error');
-          isDrawing = false;
-          return;
-      }
-
-      // Update phase information
-      if (result.next_phase && result.next_phase !== currentPhase) {
-          // Store the next phase to transition to after processing commands
-          nextPhaseToTransition = result.next_phase;
-      } else {
-          nextPhaseToTransition = null;
-      }
-
-      if (!result.has_more) {
-          console.log("has_more is false. Setting isDrawing to false.");
-          isDrawing = false;
-      }
-
-      commandQueue = [...commandQueue, ...result.commands];
-      console.log(`Commands added to queue. New queue length: ${commandQueue.length}`);
-
-      updatePhaseIndicator();
-
-      // Only call processNextCommand if drawingTimerId is null AND the queue is not empty
-      if (drawingTimerId === null && commandQueue.length > 0) {
-          console.log("drawingTimerId is null and queue has commands. Starting processNextCommand.");
-          processNextCommand();
-      } else {
-          console.log("drawingTimerId exists or queue is empty, not starting processNextCommand.");
-      }
-
+      handleCommandsReceived(result);
+    }
   } catch (error) {
-      console.error('Error getting commands:', error);
-      setStatus(`Error: ${error.message}`, 'error');
-      isDrawing = false;
+    console.error('Error getting commands:', error);
+    setStatus(`Error: ${error.message}`, 'error');
+    isDrawing = false;
   }
 }
 
