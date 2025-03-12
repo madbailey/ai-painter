@@ -21,6 +21,42 @@ const manualTools = document.getElementById('manual-tools');
 const tools = document.querySelectorAll('.tool');
 const colorOptions = document.querySelectorAll('.color-option');
 
+//phase definitions
+const PHASES = [
+  {
+    name: 'composition',
+    displayName: 'Composition',
+    description: 'Setting up the basic forms and layout',
+    parts: 4
+  },
+  {
+    name: 'color_blocking',
+    displayName: 'Color Blocking',
+    description: 'Establishing main color areas and base tones',
+    parts: 2
+  },
+  {
+    name: 'detailing',
+    displayName: 'Detailing',
+    description: 'Adding definition, mid-tones and texture',
+    parts: 2
+  },
+  {
+    name: 'final_touches',
+    displayName: 'Final Touches',
+    description: 'Refining details and adding highlights',
+    parts: 2
+  }
+];
+
+
+
+let currentPhase = 'composition';
+let currentPhaseIndex = 0;
+let currentPart = 0;
+let nextPartToTransition = 0;
+let nextPhaseToTransition = null;
+
 // Drawing state for manual mode
 let isDrawingManual = false;
 let lastX = 0;
@@ -40,6 +76,194 @@ window.currentPolyline = null;
 // Shape drawing state
 let startX = 0;
 let startY = 0;
+
+function createPhaseIndicator() {
+  // Create phase indicator container if it doesn't exist
+  if (!document.getElementById('phase-indicator')) {
+    const indicatorContainer = document.createElement('div');
+    indicatorContainer.id = 'phase-indicator';
+    indicatorContainer.className = 'phase-indicator';
+    indicatorContainer.style.cssText = 'display: flex; justify-content: space-between; margin-bottom: 15px; background-color: white; padding: 10px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);';
+    
+    // Create indicators for each phase
+    PHASES.forEach((phase, index) => {
+      const phaseElement = document.createElement('div');
+      phaseElement.id = `phase-${phase.name}`;
+      phaseElement.className = 'phase-step';
+      phaseElement.dataset.phase = phase.name;
+      
+      // Add main phase content
+      phaseElement.innerHTML = `
+        <div class="phase-number" style="width: 28px; height: 28px; border-radius: 50%; background-color: #e0e0e0; display: flex; align-items: center; justify-content: center; margin: 0 auto 5px;">${index + 1}</div>
+        <div class="phase-name" style="font-size: 12px; text-align: center;">${phase.displayName}</div>
+        <div class="phase-parts" style="display: flex; justify-content: center; margin-top: 5px;"></div>
+      `;
+      
+      // Add the part indicators
+      const partsContainer = phaseElement.querySelector('.phase-parts');
+      for (let i = 0; i < phase.parts; i++) {
+        const partDot = document.createElement('div');
+        partDot.className = 'part-indicator';
+        partDot.dataset.part = i;
+        partDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background-color: #e0e0e0; margin: 0 2px; transition: all 0.3s;';
+        partsContainer.appendChild(partDot);
+      }
+      
+      phaseElement.style.cssText = 'flex: 1; padding: 5px; opacity: 0.6; cursor: pointer;';
+      
+      // Add event listener to allow clicking on phases
+      phaseElement.addEventListener('click', () => {
+        if (isDrawing) return; // Prevent changing phases during active drawing
+        
+        const clickedPhaseIndex = PHASES.findIndex(p => p.name === phase.name);
+        const currentPhaseIndex = PHASES.findIndex(p => p.name === currentPhase);
+        
+        // Only allow moving to completed phases or the next phase
+        if (clickedPhaseIndex <= currentPhaseIndex || clickedPhaseIndex === currentPhaseIndex + 1) {
+          if (confirm(`Switch to ${phase.displayName} phase?`)) {
+            setCurrentPhase(phase.name);
+            currentPart = 0; // Reset to first part of the selected phase
+            updatePhaseIndicator();
+          }
+        } else {
+          alert("You must complete the current phase before moving to this phase.");
+        }
+      });
+      
+      indicatorContainer.appendChild(phaseElement);
+    });
+    
+    // Add connecting lines between phases
+    for (let i = 0; i < PHASES.length - 1; i++) {
+      const connector = document.createElement('div');
+      connector.className = 'phase-connector';
+      connector.style.cssText = 'flex: 0.5; height: 2px; background-color: #e0e0e0; margin-top: 12px;';
+      indicatorContainer.insertBefore(connector, indicatorContainer.children[i*2 + 1]);
+    }
+    
+    // Insert before canvas container
+    const canvasContainer = document.getElementById('canvas-container');
+    canvasContainer.parentNode.insertBefore(indicatorContainer, canvasContainer);
+    
+    // Add thinking container
+    const thinkingContainer = document.createElement('div');
+    thinkingContainer.id = 'ai-thinking';
+    thinkingContainer.className = 'ai-thinking';
+    thinkingContainer.style.cssText = 'display: none; margin-top: 10px; background-color: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 14px; line-height: 1.5; max-height: 150px; overflow-y: auto;';
+    
+    // Add toggle button
+    const thinkingToggle = document.createElement('button');
+    thinkingToggle.id = 'thinking-toggle';
+    thinkingToggle.className = 'thinking-toggle';
+    thinkingToggle.textContent = 'Show AI Thinking';
+    thinkingToggle.style.cssText = 'margin-top: 10px; padding: 5px 10px; background-color: #f1f1f1; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer;';
+    thinkingToggle.addEventListener('click', () => {
+      const aiThinking = document.getElementById('ai-thinking');
+      if (aiThinking.style.display === 'none') {
+        aiThinking.style.display = 'block';
+        thinkingToggle.textContent = 'Hide AI Thinking';
+      } else {
+        aiThinking.style.display = 'none';
+        thinkingToggle.textContent = 'Show AI Thinking';
+      }
+    });
+    
+    // Add below the controls
+    const controls = document.getElementById('ai-tools');
+    controls.appendChild(thinkingToggle);
+    controls.appendChild(thinkingContainer);
+  }
+}
+
+
+function updatePhaseIndicator() {
+  PHASES.forEach(phase => {
+    const phaseElement = document.getElementById(`phase-${phase.name}`);
+    if (phaseElement) {
+      // Update phase styling
+      if (phase.name === currentPhase) {
+        phaseElement.style.opacity = '1';
+        phaseElement.querySelector('.phase-number').style.backgroundColor = '#4285f4';
+        phaseElement.querySelector('.phase-number').style.color = 'white';
+      } else {
+        const phaseIndex = PHASES.findIndex(p => p.name === phase.name);
+        const currentIndex = PHASES.findIndex(p => p.name === currentPhase);
+        
+        if (phaseIndex < currentIndex) {
+          // Completed phases
+          phaseElement.style.opacity = '1';
+          phaseElement.querySelector('.phase-number').style.backgroundColor = '#0f9d58';
+          phaseElement.querySelector('.phase-number').style.color = 'white';
+        } else {
+          // Future phases
+          phaseElement.style.opacity = '0.6';
+          phaseElement.querySelector('.phase-number').style.backgroundColor = '#e0e0e0';
+          phaseElement.querySelector('.phase-number').style.color = 'black';
+        }
+      }
+      
+      // Update part indicators
+      const partIndicators = phaseElement.querySelectorAll('.part-indicator');
+      partIndicators.forEach((indicator, partIndex) => {
+        if (phase.name === currentPhase) {
+          if (partIndex < currentPart) {
+            // Completed parts of current phase
+            indicator.style.backgroundColor = '#0f9d58';
+          } else if (partIndex === currentPart) {
+            // Current part
+            indicator.style.backgroundColor = '#4285f4';
+          } else {
+            // Future parts
+            indicator.style.backgroundColor = '#e0e0e0';
+          }
+        } else if (phase.name === nextPhaseToTransition) {
+          // Highlight the first part of the next phase if transitioning
+          if (partIndex === 0) {
+            indicator.style.backgroundColor = '#ffa000';  // Orange for next up
+          } else {
+            indicator.style.backgroundColor = '#e0e0e0';
+          }
+        } else {
+          const phaseIndex = PHASES.findIndex(p => p.name === phase.name);
+          const currentIndex = PHASES.findIndex(p => p.name === currentPhase);
+          
+          if (phaseIndex < currentIndex) {
+            // Completed phase - all parts are green
+            indicator.style.backgroundColor = '#0f9d58';
+          } else {
+            // Future phase - all parts are gray
+            indicator.style.backgroundColor = '#e0e0e0';
+          }
+        }
+      });
+    }
+  });
+  
+  // Update connectors
+  const connectors = document.querySelectorAll('.phase-connector');
+  const currentIndex = PHASES.findIndex(p => p.name === currentPhase);
+  
+  connectors.forEach((connector, index) => {
+    if (index < currentIndex) {
+      connector.style.backgroundColor = '#0f9d58';
+    } else {
+      connector.style.backgroundColor = '#e0e0e0';
+    }
+  });
+  
+  // Update status text with current phase and part
+  const currentPhaseObj = PHASES.find(p => p.name === currentPhase);
+  if (currentPhaseObj) {
+    setStatus(`${currentPhaseObj.displayName} - Part ${currentPart + 1}/${currentPhaseObj.parts}: ${currentPhaseObj.description}`, 'info');
+  }
+}
+
+function setCurrentPhase(phaseName) {
+  if (PHASES.some(p => p.name === phaseName)) {
+    currentPhase = phaseName;
+    currentPhaseIndex = PHASES.findIndex(p => p.name === phaseName);
+  }
+}
 
 // Initialize canvas
 function initCanvas() {
@@ -191,141 +415,166 @@ function updateBrushPreview() {
 
 
 async function processNextCommand() {
-    // ALWAYS clear the timer at the VERY BEGINNING.
-    if (drawingTimerId) {
-        clearTimeout(drawingTimerId);
-        drawingTimerId = null; // Set to null immediately.
-    }
+  // ALWAYS clear the timer 
+  if (drawingTimerId) {
+      clearTimeout(drawingTimerId);
+      drawingTimerId = null; // Set to null immediately.
+  }
 
-    console.log(`processNextCommand called. Queue length: ${commandQueue.length}, isDrawing: ${isDrawing}, drawingTimerId: ${drawingTimerId}`);
+  console.log(`processNextCommand called. Queue length: ${commandQueue.length}, isDrawing: ${isDrawing}, phase: ${currentPhase}`);
 
-    if (!commandQueue.length) {
-        console.log("Command queue is empty.");
-        if (isDrawing) {
-            console.log("Calling getMoreCommands from processNextCommand");
-            await getMoreCommands();
-        } else {
-            console.log("isDrawing is false, not getting more commands.");
-            setStatus('Drawing complete!', 'success');
-            setTimeout(clearStatus, 3000);
-        }
-        return;
-    }
+  if (!commandQueue.length) {
+      console.log("Command queue is empty.");
+      
+      // If we have a next phase to transition to, do it now
+      if (nextPhaseToTransition) {
+          console.log(`Transitioning to next phase: ${nextPhaseToTransition}`);
+          setCurrentPhase(nextPhaseToTransition);
+          nextPhaseToTransition = null;
+          updatePhaseIndicator();
+          
+          if (isDrawing) {
+              console.log(`Starting new phase: ${currentPhase}`);
+              await getMoreCommands();
+          }
+      } else if (isDrawing) {
+          console.log("Calling getMoreCommands from processNextCommand");
+          await getMoreCommands();
+      } else {
+          console.log("isDrawing is false, not getting more commands.");
+          const finalPhase = PHASES[PHASES.length - 1].name;
+          if (currentPhase === finalPhase) {
+              setStatus('Drawing complete!', 'success');
+          } else {
+              setStatus(`Phase ${currentPhase} complete. Click Generate to continue to next phase.`, 'success');
+          }
+      }
+      return;
+  }
 
-    const command = commandQueue.shift();
-    console.log("Processing command:", command);
-    
-    // Add command to history
-    commandHistory.push(command);
+  // Rest of the function remains mostly the same
+  const command = commandQueue.shift();
+  console.log("Processing command:", command);
+  
+  // Add command to history
+  commandHistory.push(command);
 
-    try {
-        const response = await fetch(`${API_BASE_URL}/draw_command`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: command, image_data: currentImageData })
-        });
+  try {
+      const response = await fetch(`${API_BASE_URL}/draw_command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: command, image_data: currentImageData })
+      });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+      if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-        const result = await response.json();
-        console.log("Draw command result:", result);
+      const result = await response.json();
+      console.log("Draw command result:", result);
 
-        if (result.error) {
-            console.error('Server error:', result.error);
-        } else {
-            currentImageData = result.image_data;
-            const img = new Image();
-            img.onload = () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-                console.log("Image updated. Scheduling next command.");
-                // Only set the timeout if the queue is NOT empty
-                if(commandQueue.length > 0){
-                    drawingTimerId = setTimeout(processNextCommand, 200);
-                } else if (isDrawing){
-                    // If the queue IS empty, but we expect more, get them
-                    getMoreCommands()
-                }
-            };
-            img.onerror = () => {
-                console.error('Error loading image');
-                 if(commandQueue.length > 0){
-                    drawingTimerId = setTimeout(processNextCommand, 200);
-                } else if (isDrawing) {
-                     getMoreCommands()
-                }
-            };
-            img.src = currentImageData;
-        }
+      if (result.error) {
+          console.error('Server error:', result.error);
+      } else {
+          currentImageData = result.image_data;
+          const img = new Image();
+          img.onload = () => {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0);
+              console.log("Image updated. Scheduling next command.");
+              // Only set the timeout if the queue is NOT empty
+              if(commandQueue.length > 0){
+                  drawingTimerId = setTimeout(processNextCommand, 200);
+              } else {
+                  // If the queue IS empty, processNextCommand will be called again
+                  // and will handle phase transitions
+                  processNextCommand();
+              }
+          };
+          img.onerror = () => {
+              console.error('Error loading image');
+              if(commandQueue.length > 0){
+                  drawingTimerId = setTimeout(processNextCommand, 200);
+              } else {
+                  processNextCommand();
+              }
+          };
+          img.src = currentImageData;
+      }
 
-    } catch (error) {
-        console.error('Error executing command:', error);
-          if(commandQueue.length > 0){
-            drawingTimerId = setTimeout(processNextCommand, 200);
-         } else if (isDrawing){
-             getMoreCommands();
-         }
-    }
+  } catch (error) {
+      console.error('Error executing command:', error);
+      if(commandQueue.length > 0){
+          drawingTimerId = setTimeout(processNextCommand, 200);
+      } else {
+          processNextCommand();
+      }
+  }
 }
 
 async function getMoreCommands() {
-    console.log(`getMoreCommands called. Iteration: ${currentIteration}, isDrawing: ${isDrawing}`);
+  console.log(`getMoreCommands called. Phase: ${currentPhase}, isDrawing: ${isDrawing}`);
 
-    try {
-        setStatus(`Thinking... (iteration ${currentIteration + 1})`, 'loading');
+  try {
+      const currentPhaseObj = PHASES.find(p => p.name === currentPhase);
+      setStatus(`Working on ${currentPhaseObj.displayName}...`, 'loading');
 
-        const response = await fetch(`${API_BASE_URL}/get_commands`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                prompt: prompt, 
-                iteration: currentIteration, 
-                current_image: currentImageData,
-                command_history: commandHistory // Send the command history
-            })
-        });
+      const response = await fetch(`${API_BASE_URL}/get_commands`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+              prompt: prompt, 
+              phase: currentPhase,
+              current_image: currentImageData,
+              command_history: commandHistory
+          })
+      });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+      if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-        const result = await response.json();
-        console.log("getMoreCommands result:", result);
+      const result = await response.json();
+      console.log("getMoreCommands result:", result);
 
-        if (result.error) {
-            console.error('Server error:', result.error);
-            setStatus(`Error: ${result.error}`, 'error');
-            isDrawing = false;
-            return;
-        }
+      if (result.error) {
+          console.error('Server error:', result.error);
+          setStatus(`Error: ${result.error}`, 'error');
+          isDrawing = false;
+          return;
+      }
 
-        currentIteration++;
+      // Update phase information
+      if (result.next_phase && result.next_phase !== currentPhase) {
+          // Store the next phase to transition to after processing commands
+          nextPhaseToTransition = result.next_phase;
+      } else {
+          nextPhaseToTransition = null;
+      }
 
-        if (!result.has_more) {
-            console.log("has_more is false. Setting isDrawing to false.");
-            isDrawing = false;
-        }
+      if (!result.has_more) {
+          console.log("has_more is false. Setting isDrawing to false.");
+          isDrawing = false;
+      }
 
-        commandQueue = [...commandQueue, ...result.commands];
-        console.log(`Commands added to queue. New queue length: ${commandQueue.length}`);
+      commandQueue = [...commandQueue, ...result.commands];
+      console.log(`Commands added to queue. New queue length: ${commandQueue.length}`);
 
-        setStatus(`Drawing... (iteration ${currentIteration})`, 'info');
+      updatePhaseIndicator();
 
-        //  Only call processNextCommand if drawingTimerId is null AND the queue is not empty
-        if (drawingTimerId === null && commandQueue.length > 0) {
-            console.log("drawingTimerId is null and queue has commands. Starting processNextCommand.");
-            processNextCommand();
-        } else {
-            console.log("drawingTimerId exists or queue is empty, not starting processNextCommand.");
-        }
+      // Only call processNextCommand if drawingTimerId is null AND the queue is not empty
+      if (drawingTimerId === null && commandQueue.length > 0) {
+          console.log("drawingTimerId is null and queue has commands. Starting processNextCommand.");
+          processNextCommand();
+      } else {
+          console.log("drawingTimerId exists or queue is empty, not starting processNextCommand.");
+      }
 
-    } catch (error) {
-        console.error('Error getting commands:', error);
-        setStatus(`Error: ${error.message}`, 'error');
-        isDrawing = false;
-    }
+  } catch (error) {
+      console.error('Error getting commands:', error);
+      setStatus(`Error: ${error.message}`, 'error');
+      isDrawing = false;
+  }
 }
 
 // Manual drawing functions
@@ -611,6 +860,8 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Initial update of the brush preview
   updateAllBrushSettings();
+  createPhaseIndicator();
+  updatePhaseIndicator();
 });
 
 // Tool selection
@@ -651,53 +902,56 @@ modeButtons.forEach(button => {
 
 // AI Drawing Mode Event Listeners
 generateBtn.addEventListener('click', async () => {
-    prompt = promptInput.value;
-    if (!prompt) {
-        alert('Please enter a prompt.');
-        return;
-    }
+  prompt = promptInput.value;
+  if (!prompt) {
+      alert('Please enter a prompt.');
+      return;
+  }
 
-    if (isDrawing) {
-        alert('Drawing in progress. Please wait or clear.');
-        return;
-    }
+  if (isDrawing) {
+      alert('Drawing in progress. Please wait or clear.');
+      return;
+  }
 
-    console.log("Starting or continuing drawing.");
-    isDrawing = true;
-    currentIteration = 0;
-    commandQueue = [];
-    commandHistory = []; // Clear command history for new drawing
-    if (drawingTimerId) {
-        clearTimeout(drawingTimerId);
-        drawingTimerId = null;
-    }
+  console.log("Starting or continuing drawing.");
+  isDrawing = true;
+  
+  // If starting fresh, reset to composition phase
+  // If continuing, use the current phase
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const isEmpty = !Array.from(imageData.data).some((channel, i) => (i % 4 !== 3) && channel !== 255);
+  
+  if (isEmpty) {
+      setCurrentPhase('composition');
+      commandHistory = []; // Clear history for a blank canvas
+  }
+  
+  commandQueue = [];
+  nextPhaseToTransition = null;
+  
+  if (drawingTimerId) {
+      clearTimeout(drawingTimerId);
+      drawingTimerId = null;
+  }
 
-    // Preserve existing drawing if there is one
-    // Just use the current canvas state as the starting point
-    currentImageData = canvas.toDataURL('image/png');
+  // Preserve existing drawing if there is one
+  currentImageData = canvas.toDataURL('image/png');
 
-    generateBtn.disabled = true;
-    // Check if we're starting from an empty canvas or enhancing existing work
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const isEmpty = !Array.from(imageData.data).some((channel, i) => (i % 4 !== 3) && channel !== 255); // Check if all non-alpha channels are white
-    
-    if (isEmpty) {
-        setStatus('Getting initial commands...', 'loading');
-        commandHistory = []; // Clear history for a blank canvas
-    } else {
-        setStatus('Enhancing your drawing...', 'loading');
-        // If we're enhancing, we keep the existing command history
-    }
-
-    try {
-        await getMoreCommands();
-    } catch (error) {
-        console.error('Error:', error);
-        setStatus(`Failed to generate: ${error.message}`, 'error');
-        isDrawing = false;
-    } finally {
-        generateBtn.disabled = false;
-    }
+  generateBtn.disabled = true;
+  
+  try {
+      // Create phase indicator on first generate
+      createPhaseIndicator();
+      updatePhaseIndicator();
+      
+      await getMoreCommands();
+  } catch (error) {
+      console.error('Error:', error);
+      setStatus(`Failed to generate: ${error.message}`, 'error');
+      isDrawing = false;
+  } finally {
+      generateBtn.disabled = false;
+  }
 });
 
 captureBtn.addEventListener('click', () => {

@@ -28,6 +28,69 @@ GENERATION_CONFIG = {
     "max_output_tokens": 2048,
 }
 
+PHASES = [
+    {
+        "name": "composition",
+        "display_name": "Composition",
+        "description": "Setting up the basic forms and layout",
+        "parts": [
+            {
+                "focus": "Create the foundational elements and layout. Establish the main shapes and compositional structure.",
+                "instruction": "Focus on creating the overall composition and basic shapes. Establish the main elements and their arrangement."
+            },
+            {
+                "focus": "Review and refine the composition. Adjust proportions and placement as needed.",
+                "instruction": "Look at the current composition and identify what's working and what needs adjustment. Use modification commands to improve balance and structure."
+            }
+        ]
+    },
+    {
+        "name": "color_blocking",
+        "display_name": "Color Blocking",
+        "description": "Establishing main color areas and base tones",
+        "parts": [
+            {
+                "focus": "Add primary colors and establish the main color areas.",
+                "instruction": "Create a foundation of base tones and broad color zones. Focus on larger brush strokes to define major color regions."
+            },
+            {
+                "focus": "Refine colors and improve color harmony. Adjust color areas that don't work well.",
+                "instruction": "Evaluate the current color scheme. Use modification commands to adjust colors that clash or areas that need better definition."
+            }
+        ]
+    },
+    {
+        "name": "detailing",
+        "display_name": "Detailing",
+        "description": "Adding definition, mid-tones and texture",
+        "parts": [
+            {
+                "focus": "Add details, shadows, and mid-tones to the existing elements.",
+                "instruction": "Use smaller brushes for refinement. Define edges more clearly and add secondary elements."
+            },
+            {
+                "focus": "Enhance specific details and add definition where needed.",
+                "instruction": "Identify areas that lack detail or definition. Use targeted commands to enhance only those specific areas."
+            }
+        ]
+    },
+    {
+        "name": "final_touches",
+        "display_name": "Final Touches",
+        "description": "Refining details and adding highlights",
+        "parts": [
+            {
+                "focus": "Add final highlights, texture details, and refinements.",
+                "instruction": "Focus on smaller, precise strokes to enhance realism and polish. Emphasize focal points."
+            },
+            {
+                "focus": "Make final adjustments and corrections to complete the artwork.",
+                "instruction": "Do a final review of the entire piece. Address any remaining issues or inconsistencies with targeted modifications."
+            }
+        ]
+    }
+]
+
 def data_uri_to_image(uri):
     _, encoded = uri.split(",", 1)
     data = base64.b64decode(encoded)
@@ -410,11 +473,107 @@ def process_drawing_command(image_data, command):
                     else:
                         d.ellipse([(x0, y0), (x1, y1)], outline=color, width=width)
 
+        elif action == 'erase_area':
+            x0 = command.get('x0', 0)
+            y0 = command.get('y0', 0)
+            x1 = command.get('x1', 100)
+            y1 = command.get('y1', 100)
+            
+            # Create a white rectangle with transparency
+            transparent_white = (255, 255, 255, 200)  # Semi-transparent white
+            d.rectangle([(x0, y0), (x1, y1)], fill=transparent_white)
+            
+        elif action == 'modify_color':
+            target_color = command.get('target_color', '')
+            new_color = command.get('new_color', '')
+            area_x = command.get('area_x', 0)
+            area_y = command.get('area_y', 0)
+            radius = command.get('radius', 50)
+            
+            if target_color and new_color:
+                # Convert colors to RGB tuples
+                if isinstance(target_color, str) and target_color.startswith('#'):
+                    target_color = target_color.lstrip('#')
+                    if len(target_color) == 6:
+                        r, g, b = tuple(int(target_color[i:i+2], 16) for i in (0, 2, 4))
+                        target_color = (r, g, b)
+                
+                if isinstance(new_color, str) and new_color.startswith('#'):
+                    new_color = new_color.lstrip('#')
+                    if len(new_color) == 6:
+                        r, g, b = tuple(int(new_color[i:i+2], 16) for i in (0, 2, 4))
+                        new_color = (r, g, b)
+                
+                # Get pixel data
+                pixel_data = img.load()
+                width, height = img.size
+                
+                # Define the area to modify (circular)
+                for x in range(max(0, area_x - radius), min(width, area_x + radius)):
+                    for y in range(max(0, area_y - radius), min(height, area_y + radius)):
+                        # Check if point is in the circle
+                        if ((x - area_x) ** 2 + (y - area_y) ** 2) <= radius ** 2:
+                            pixel = pixel_data[x, y]
+                            # Check if this pixel is close to the target color
+                            if (isinstance(target_color, tuple) and len(pixel) >= 3 and 
+                                abs(pixel[0] - target_color[0]) < 30 and 
+                                abs(pixel[1] - target_color[1]) < 30 and 
+                                abs(pixel[2] - target_color[2]) < 30):
+                                
+                                # Preserve alpha if exists
+                                alpha = pixel[3] if len(pixel) > 3 else 255
+                                new_pixel = new_color + (alpha,) if isinstance(new_color, tuple) else pixel
+                                pixel_data[x, y] = new_pixel
+        
+        elif action == 'enhance_detail':
+            x = command.get('x', 100)
+            y = command.get('y', 100)
+            radius = command.get('radius', 20)
+            technique = command.get('technique', 'highlight')
+            color = command.get('color', '#FFFFFF')
+            
+            if isinstance(color, str) and color.startswith('#'):
+                color = color.lstrip('#')
+                if len(color) == 6:
+                    r, g, b = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+                    color = (r, g, b, 100)  # Semi-transparent
+            
+            if technique == 'highlight':
+                # Add a semi-transparent highlight
+                highlight_radius = radius / 2
+                d.ellipse((x - highlight_radius, y - highlight_radius, 
+                          x + highlight_radius, y + highlight_radius), 
+                          fill=color)
+            
+            elif technique == 'sharpen':
+                # Simulate sharpening by adding small contrasting dots
+                for _ in range(int(radius * 0.8)):
+                    dot_x = x + random.uniform(-radius, radius)
+                    dot_y = y + random.uniform(-radius, radius)
+                    dot_size = random.uniform(1, 3)
+                    d.ellipse((dot_x - dot_size, dot_y - dot_size, 
+                              dot_x + dot_size, dot_y + dot_size), 
+                              fill=color)
+        
+        elif action == 'soften':
+            x = command.get('x', 100)
+            y = command.get('y', 100)
+            radius = command.get('radius', 20)
+            
+            # Simulate softening by adding very transparent overlay
+            soft_color = (255, 255, 255, 20)  # Very transparent white
+            for i in range(10):
+                blur_radius = random.uniform(radius * 0.5, radius * 1.2)
+                d.ellipse((x - blur_radius, y - blur_radius, 
+                          x + blur_radius, y + blur_radius), 
+                          fill=soft_color)
+
     except Exception as e:
         print(f"Drawing error: {e} for command {action}")
         pass  # Don't crash on drawing errors
 
     return image_to_data_uri(img)
+
 
 @app.route('/draw_command', methods=['POST'])
 def draw_command():
@@ -432,7 +591,8 @@ def get_commands():
     """Get drawing commands from Gemini"""
     data = request.get_json()
     prompt = data.get('prompt')
-    iteration = data.get('iteration', 0)
+    current_phase = data.get('phase', 'composition')  # Default to composition phase
+    current_part = data.get('part', 0)  # Default to first part (0-indexed)
     current_image = data.get('current_image')
     command_history = data.get('command_history', [])
 
@@ -440,25 +600,46 @@ def get_commands():
         return jsonify({'error': 'No prompt provided'}), 400
 
     try:
-        if iteration == 0:
-            # Format the command history for readability
-            history_text = ""
-            if command_history and len(command_history) > 0:
-                history_text = "Previous drawing commands:\n"
-                for i, cmd in enumerate(command_history):
-                    history_text += f"{i+1}. {json.dumps(cmd)}\n"
+        # Format the command history for readability
+        history_text = ""
+        if command_history and len(command_history) > 0:
+            history_text = "Previous drawing commands:\n"
+            for i, cmd in enumerate(command_history[-10:]):  # Only show the last 10 commands
+                history_text += f"{i+1}. {json.dumps(cmd)}\n"
                     
-            # Initial prompt with expanded command set and painterly approach
+        # Find the current phase details
+        phase_info = next((phase for phase in PHASES if phase["name"] == current_phase), PHASES[0])
+        
+        # Determine next part or phase
+        next_part = current_part + 1
+        next_phase = current_phase
+        
+        # If we've reached the end of parts for this phase, move to the next phase
+        if next_part >= len(phase_info["parts"]):
+            next_part = 0
+            phase_index = next((i for i, p in enumerate(PHASES) if p["name"] == current_phase), 0)
+            if phase_index < len(PHASES) - 1:
+                next_phase = PHASES[phase_index + 1]["name"]
+        
+        has_more = not (next_phase == PHASES[-1]["name"] and next_part == len(PHASES[-1]["parts"]) - 1)
+        
+        # Get the current part information
+        current_part_info = phase_info["parts"][current_part]
+        
+        # Build different prompts based on phase and part
+        if current_phase == 'composition' and current_part == 0:
+            # Initial composition, first part (similar to original)
             prompt_text = [
                 "You are a digital painting assistant capable of creating expressive, painterly artwork. I will give you a prompt, and you will respond with a JSON array of drawing commands that creates organic, artistic strokes rather than rigid digital lines.",
                 # Include command history if available
                 history_text if history_text else "No previous commands recorded.",
-                "First, use <think></think> tags to reason about the drawing as a painter would. Consider:",
-                " - What are the main elements and how would a traditional artist approach them?",
-                " - What brush types would best represent different elements (round brushes for organic forms, flat brushes for structures)?",
-                " - How would brushstrokes be applied - direction, pressure, and texture?",
-                " - What painting techniques would suit this subject (wet-on-wet, glazing, impasto, etc.)?",
-                " - How would a traditional artist layer and build up the painting?",
+                "First, use <think></think> tags to reason about the drawing as a painter would. This is the COMPOSITION PHASE (Part 1), focused on establishing the basic structure and layout. Consider:",
+                " - What are the main elements of the composition and how should they be arranged?",
+                " - How will you establish the basic forms, proportions, and spatial relationships?",
+                " - What simple shapes will help build the foundation of the scene?",
+                " - How would a traditional artist start blocking in the main elements?",
+                
+                f"Phase Focus: {current_part_info['focus']}",
                 
                 "After your reasoning, provide a JSON array of drawing commands. The valid commands are:",
                 " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
@@ -467,27 +648,16 @@ def get_commands():
                 " - {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': 'green', 'width': 2, 'fill': false, 'texture': 'smooth'}",
                 " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false, 'texture': 'smooth'}",
                 
+                "COMPOSITION PHASE Recommendations:",
+                " - Use light, sketchy strokes to establish proportions",
+                " - Focus on outlines and basic forms rather than details",
+                " - Use muted colors or grayscale for initial blocking",
+                " - Establish the horizon line and main spatial elements",
+                
                 "Brush types:",
                 " - 'round': Creates tapered, organic strokes with varying width",
                 " - 'flat': Creates angular, directional strokes like a flat brush",
                 " - 'splatter': Creates a scattered, spray-like effect",
-                
-                "Texture types:",
-                " - 'smooth': Creates clean, even strokes",
-                " - 'rough': Adds randomness and texture to strokes and fills",
-                
-                "Pressure (0.1-1.0):",
-                " - Higher values create more opaque strokes",
-                " - Lower values create more transparent strokes",
-                
-                "Available colors: 'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'black', 'white', or hex values like '#FF0000'",
-                
-                "IMPORTANT: Focus on creating painterly effects by:",
-                " - Using shorter, overlapping brush strokes instead of long continuous lines",
-                " - Varying brush types, widths, and pressures for different elements",
-                " - Using rough textures for natural elements, smooth for manufactured ones",
-                " - Building up layers from background to foreground",
-                " - Using wider strokes for blocking in shapes, smaller for details",
                 
                 "Canvas size is 500x400.",
                 
@@ -497,76 +667,104 @@ def get_commands():
                 "Remember to use <think>your reasoning here</think> before your JSON response. Your final output should include both your thinking and the JSON array, but I will strip out the thinking part before processing.",
             ]
         else:
-            # Iteration prompt (refined instructions)
+            # All other phases and parts (including part 2+ of composition)
             if not current_image:
                 return jsonify({'error': 'No current image provided'}), 400
+            
             img = data_uri_to_image(current_image)
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             image_part = {"mime_type": "image/png", "data": buffered.getvalue()}
-
-            # Format the command history for readability
-            history_text = ""
-            if command_history and len(command_history) > 0:
-                history_text = "Previous drawing commands:\n"
-                for i, cmd in enumerate(command_history):
-                    history_text += f"{i+1}. {json.dumps(cmd)}\n"
             
-            # Define iteration focus based on stage
-            if iteration == 1:
-                focus = "Adding more organic brushstrokes and texture to define main forms."
-            elif iteration == 2:
-                focus = "Layering and building depth with varied brush strokes and colors."
-            elif iteration == 3:
-                focus = "Adding highlights, shadows, and texture with appropriate brush types."
-            else:
-                focus = "Refining details and adding final touches with small, precise strokes."
-
+            # Base prompt elements for all non-initial phases/parts
             prompt_text = [
                 "Here is the original prompt:",
                 prompt,
                 "Here is the current drawing:",
                 image_part,
-                f"The current iteration stage is: {iteration}", 
-                f"Focus: {focus}",
-                # Include command history if available
+                f"Current Phase: {phase_info['display_name']} (Part {current_part + 1}/{len(phase_info['parts'])})",
+                f"Phase Focus: {current_part_info['focus']}",
+                # Include command history
                 history_text if history_text else "No previous commands recorded.",
+            ]
+            
+            # For first parts of each phase (excluding composition part 1)
+            if current_part == 0 and current_phase != 'composition':
+                prompt_text.extend([
+                    f"First, use <think></think> tags to analyze the current drawing as an artist would. This is the {phase_info['display_name'].upper()} PHASE (Part 1). Consider:",
+                    " - What are the key elements already established in the drawing?",
+                    " - How will you build upon the existing foundation?",
+                    f" - What specific techniques will you use to accomplish the phase goal: {current_part_info['focus']}",
+                    
+                    f"{phase_info['display_name'].upper()} PHASE Recommendations:",
+                ])
                 
-                "First, use <think></think> tags to analyze the current drawing as an artist would. Consider:",
-                " - What painterly techniques would improve what's already there?",
-                " - How would traditional painters approach the next layer?",
-                " - Where could brush variation add interest and texture?",
-                " - What elements need reinforcement or refinement?",
+                # Phase-specific recommendations
+                if current_phase == 'color_blocking':
+                    prompt_text.extend([
+                        " - Use broader strokes with medium to large brushes",
+                        " - Focus on establishing main color areas rather than blending",
+                        " - Use flat brush for efficient coverage of larger areas",
+                        " - Consider the overall color relationships and balance",
+                    ])
+                elif current_phase == 'detailing':
+                    prompt_text.extend([
+                        " - Use medium to small brushes for precise application",
+                        " - Add shadows and mid-tones to create volume",
+                        " - Refine edges between color areas",
+                        " - Begin adding smaller elements and features",
+                    ])
+                else:  # final_touches
+                    prompt_text.extend([
+                        " - Use small brushes for precise details",
+                        " - Add highlights and reflections",
+                        " - Enhance focal areas with additional detail",
+                        " - Make subtle adjustments to color and contrast",
+                    ])
+            
+            # For second+ parts (diff-style refinement)
+            else:
+                prompt_text.extend([
+                    f"First, use <think></think> tags to critically analyze the current drawing. This is {phase_info['display_name'].upper()} PHASE (Part {current_part + 1}/{len(phase_info['parts'])}), focused on refinement and improvement.",
+                    
+                    "CAREFULLY EXAMINE THE CURRENT DRAWING AND IDENTIFY:",
+                    " - What elements are working well and should be preserved?",
+                    " - What specific areas need improvement or refinement?",
+                    " - What elements are missing or inconsistent with the prompt?",
+                    " - Where could you make targeted changes to significantly improve the artwork?",
+                    
+                    f"YOUR GOAL: {current_part_info['focus']}",
+                    
+                    "IMPORTANT: Instead of redrawing everything, focus on making TARGETED MODIFICATIONS to specific areas that need improvement.",
+                ])
+            
+            # Command sets for all non-initial phases/parts
+            prompt_text.extend([
+                "After your analysis, provide a JSON array of drawing commands. Available commands include:",
                 
-                "After your analysis, provide the NEXT set of drawing commands as a JSON array. The valid commands are:",
+                # Standard commands
                 " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
-                " - {'action': 'erase', 'points': [[x1, y1], [x2, y2], ...], 'width': 10}",
-                " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue', 'texture': 'smooth'}",
                 " - {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': 'green', 'width': 2, 'fill': false, 'texture': 'smooth'}",
                 " - {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': 'yellow', 'width': 2, 'fill': false, 'texture': 'smooth'}",
+                " - {'action': 'fill_area', 'x': 100, 'y': 100, 'color': 'blue', 'texture': 'smooth'}",
+                
+                # Diff-style commands (for part 2+)
+                " - {'action': 'erase_area', 'x0': 100, 'y0': 100, 'x1': 200, 'y1': 200}",
+                " - {'action': 'modify_color', 'target_color': '#FF0000', 'new_color': '#0000FF', 'area_x': 150, 'area_y': 150, 'radius': 50}",
+                " - {'action': 'enhance_detail', 'x': 200, 'y': 200, 'radius': 20, 'technique': 'highlight', 'color': '#FFFFFF'}",
+                " - {'action': 'enhance_detail', 'x': 200, 'y': 200, 'radius': 20, 'technique': 'sharpen', 'color': '#000000'}",
+                " - {'action': 'soften', 'x': 200, 'y': 200, 'radius': 20}",
                 
                 "Brush types:",
                 " - 'round': Creates tapered, organic strokes with varying width",
                 " - 'flat': Creates angular, directional strokes like a flat brush",
                 " - 'splatter': Creates a scattered, spray-like effect",
                 
-                "Texture types:",
-                " - 'smooth': Creates clean, even strokes",
-                " - 'rough': Adds randomness and texture to strokes and fills",
-                
-                "Pressure (0.1-1.0):",
-                " - Higher values create more opaque strokes",
-                " - Lower values create more transparent strokes",
-                
-                "IMPORTANT: For this iteration, focus on:",
-                focus,
-                
-                "Remember to use <think>your analysis here</think> before your JSON response. Your final output should include both your thinking and the JSON array, but I will strip out the thinking part before processing.",
-            ]
+                "Remember to use <think>your analysis here</think> before your JSON response.",
+            ])
 
         response = model.generate_content(prompt_text, generation_config=GENERATION_CONFIG)
-        # Rest of the function remains the same
-        print(f"Raw Gemini Response (Iteration {iteration}):")
+        print(f"Raw Gemini Response (Phase: {current_phase}, Part: {current_part}):")
         print(response.text)
         
         # Extract and print thinking if present
@@ -584,7 +782,15 @@ def get_commands():
             commands = json.loads(commands_str)
             if not isinstance(commands, list):
                 raise ValueError("Response is not a JSON array")
-            return jsonify({'commands': commands, 'iteration': iteration + 1, 'has_more': iteration < 5})  # Limit iterations
+            return jsonify({
+                'commands': commands, 
+                'current_phase': current_phase,
+                'current_part': current_part,
+                'next_phase': next_phase,
+                'next_part': next_part,
+                'has_more': has_more,
+                'thinking': thinking  # Include the thinking for UI display (optional)
+            })
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
             # Attempt aggressive cleaning
@@ -592,7 +798,15 @@ def get_commands():
             print(f"Aggressive clean: {clean_attempt[:100]}...")
             try:
                 commands = json.loads(clean_attempt)
-                return jsonify({'commands': commands, 'iteration': iteration + 1, 'has_more': iteration < 5})
+                return jsonify({
+                    'commands': commands, 
+                    'current_phase': current_phase,
+                    'current_part': current_part,
+                    'next_phase': next_phase,
+                    'next_part': next_part,
+                    'has_more': has_more,
+                    'thinking': thinking  # Include the thinking for UI display (optional)
+                })
             except:
                 raise ValueError(f"Could not parse JSON: {e}")
 
