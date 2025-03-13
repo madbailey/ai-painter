@@ -1,8 +1,9 @@
 """
-Prompt construction for different painting phases with element-based approach.
+Prompt construction for different painting phases with better context management.
 """
 
 from config.phases import PHASES
+from utils.text import get_element_registry_summary, summarize_command_history
 
 def get_initial_composition_prompt(prompt, history_text=""):
     """
@@ -38,10 +39,10 @@ def get_initial_composition_prompt(prompt, history_text=""):
         
         "After your three-stage thinking process, provide JSON outputs for each element in separate tags:",
         
-        "<background>JSON array of drawing commands for the background</background>",
-        "<element1>JSON array of drawing commands for the first main element</element1>",
-        "<element2>JSON array of drawing commands for the second main element (if applicable)</element2>",
-        "<element3>JSON array of drawing commands for the third main element (if applicable)</element3>",
+        "<background>[JSON array of drawing commands for the background]</background>",
+        "<element1>[JSON array of drawing commands for the first main element]</element1>",
+        "<element2>[JSON array of drawing commands for the second main element (if applicable)]</element2>",
+        "<element3>[JSON array of drawing commands for the third main element (if applicable)]</element3>",
         
         "The valid commands for each element are:",
         " - {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': 'red', 'width': 2, 'brush_type': 'round', 'texture': 'smooth', 'pressure': 1.0}",
@@ -66,12 +67,12 @@ def get_initial_composition_prompt(prompt, history_text=""):
         "Here is the prompt:",
         prompt,
         
-        "Remember to organize your response with the three thinking stages followed by element-specific JSON outputs in their own tags.",
+        "Remember to organize your response with the three thinking stages followed by element-specific JSON outputs in their own tags. DO NOT use ```json code blocks inside the element tags.",
     ]
 
-def get_continuation_prompt(prompt, current_phase, current_part, image, history_text=""):
+def get_continuation_prompt(prompt, current_phase, current_part, image, history_text="", command_history=None):
     """
-    Get the prompt for continuing an in-progress painting.
+    Get the prompt for continuing an in-progress painting with improved context preservation.
     
     Args:
         prompt (str): User's original prompt
@@ -79,6 +80,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         current_part (int): Current part index within the phase
         image: The current image (will be included in prompt)
         history_text (str): Previous command history
+        command_history (list): Actual command history objects for better context
         
     Returns:
         list: List of prompt segments for the AI
@@ -86,16 +88,35 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
     phase_info = next((phase for phase in PHASES if phase["name"] == current_phase), PHASES[0])
     current_part_info = phase_info["parts"][current_part]
     
+    # Generate a more descriptive history summary if available
+    if command_history:
+        summarized_history = summarize_command_history(command_history)
+    else:
+        summarized_history = history_text
+    
+    # Get a summary of the element registry
+    element_registry_summary = get_element_registry_summary()
+    
     # Base prompt elements for all non-initial phases/parts
     prompt_text = [
+        "You are a digital painting assistant creating MS Paint style artwork. Create simple, bold strokes with bright colors, avoiding white/blank space.",
+        
         "Here is the original prompt:",
         prompt,
+        
         "Here is the current drawing:",
         image,
+        
         f"Current Phase: {phase_info['display_name']} (Part {current_part + 1}/{len(phase_info['parts'])})",
         f"Phase Focus: {current_part_info['focus']}",
+        
+        "Current elements summary:",
+        element_registry_summary,
+        
         # Include command history
-        history_text if history_text else "No previous commands recorded.",
+        summarized_history if summarized_history else "No previous commands recorded.",
+        
+        f"IMPORTANT: You are now in the {phase_info['display_name'].upper()} PHASE. Do NOT restart from scratch - build upon the existing drawing.",
     ]
     
     # For first parts of each new phase (excluding composition part 1)
@@ -119,6 +140,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
                 " - Ensure no white/blank space remains visible",
                 " - Keep colors simple and distinct (MS Paint style)",
                 " - Maintain clear boundaries between different elements",
+                " - DO NOT erase or redraw the entire image - enhance what's already there",
             ])
         elif current_phase == 'detailing':
             prompt_text.extend([
@@ -126,6 +148,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
                 " - Use contrasting colors for details to make them pop",
                 " - Maintain the childlike simplicity of the style",
                 " - Add basic shadows or highlights with solid colors",
+                " - DO NOT erase or redraw the entire image - enhance what's already there",
             ])
         else:  # final_touches
             prompt_text.extend([
@@ -133,6 +156,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
                 " - Ensure all areas have appropriate coloring",
                 " - Reinforce the boundaries between elements",
                 " - Add simple decorative elements if appropriate",
+                " - DO NOT erase or redraw the entire image - enhance what's already there",
             ])
     
     # For second+ parts (improvement and refinement)
@@ -148,17 +172,17 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
             
             f"YOUR GOAL: {current_part_info['focus']}",
             
-            "IMPORTANT: Focus on making TARGETED MODIFICATIONS to specific areas that need improvement rather than redrawing everything.",
+            "IMPORTANT: Focus on making TARGETED MODIFICATIONS to specific areas that need improvement. Do NOT redraw the entire image.",
         ])
     
     # Element-based outputs for all continuation prompts
     prompt_text.extend([
         "After your three-stage thinking process, provide JSON outputs for modifications to each element in separate tags:",
         
-        "<background_mod>JSON array of drawing commands to modify the background</background_mod>",
-        "<element1_mod>JSON array of drawing commands to modify the first main element</element1_mod>",
-        "<element2_mod>JSON array of drawing commands to modify the second main element (if applicable)</element2_mod>",
-        "<element3_mod>JSON array of drawing commands to modify the third main element (if applicable)</element3_mod>",
+        "<background_mod>[JSON array of drawing commands to modify the background]</background_mod>",
+        "<element1_mod>[JSON array of drawing commands to modify the first main element]</element1_mod>",
+        "<element2_mod>[JSON array of drawing commands to modify the second main element (if applicable)]</element2_mod>",
+        "<element3_mod>[JSON array of drawing commands to modify the third main element (if applicable)]</element3_mod>",
         
         "Available commands include:",
         
@@ -180,7 +204,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         " - 'flat': Creates angular, directional strokes like a flat brush",
         " - 'splatter': Creates a scattered, spray-like effect",
         
-        "Remember to organize your response with the three thinking stages followed by element-specific JSON outputs in their own tags.",
+        "Remember to organize your response with the three thinking stages followed by element-specific JSON outputs in their own tags. DO NOT use ```json code blocks inside the element tags.",
     ])
     
     return prompt_text
@@ -197,7 +221,13 @@ def format_command_history(command_history):
     """
     if not command_history or len(command_history) == 0:
         return ""
+    
+    # If possible, use the improved summary method
+    summary = summarize_command_history(command_history)
+    if summary:
+        return summary
         
+    # Fallback to basic formatting
     history_text = "Previous drawing commands:\n"
     # Only show the last 10 commands to avoid prompt length issues
     for i, cmd in enumerate(command_history[-10:]):
