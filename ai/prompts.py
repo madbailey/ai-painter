@@ -5,49 +5,30 @@ Improved prompt construction with better spatial awareness for painting phases.
 from config.phases import PHASES
 
 def get_initial_composition_prompt(prompt, history_text=""):
-    """
-    Get prompt for the initial composition phase with clear canvas dimensions.
-    
-    Args:
-        prompt (str): User's original prompt
-        history_text (str): Previous command history summary
-        
-    Returns:
-        list: List of prompt segments for the AI
-    """
+    """Creates initial composition prompt with optimized token usage"""
     return [
-        "You are a digital painting assistant. Create a simple, cartoonish MS Paint style artwork based on the user's text prompt.",
+        "You are a digital painting assistant. Create a simple, cartoonish MS Paint style artwork.",
         
-        "Here is the prompt:",
-        prompt,
+        f"Prompt: {prompt}",
         
         "This is the SKETCH phase. Focus on creating the basic layout and shapes.",
         
-        "IMPORTANT CANVAS INFORMATION:",
-        "- The canvas is 500 pixels wide (x-axis) and 400 pixels tall (y-axis)",
-        "- Coordinates (0,0) are at the top-left corner",
-        "- Coordinates (500,400) are at the bottom-right corner",
-        "- YOU MUST USE THE ENTIRE CANVAS AREA for your composition",
-        "- Place objects across the full width (0-500) and height (0-400)",
+        "CANVAS: 500×400px. (0,0)=top-left, (500,400)=bottom-right",
+        "USE ENTIRE CANVAS! Distribute elements across all regions (TL/TR/BL/BR)",
         
-        "Use <think> tags to plan your drawing. Consider what elements will go in each area of the canvas.",
+        "JSON Commands:",
+        "{'action':'draw_polyline','points':[[x1,y1],[x2,y2],...],'color':'#HEX','width':N}",
+        "{'action':'draw_rect','x0':N,'y0':N,'x1':N,'y1':N,'color':'#HEX','width':N,'fill':bool}",
+        "{'action':'draw_circle','x':N,'y':N,'radius':N,'color':'#HEX','width':N,'fill':bool}",
+        "{'action':'fill_area','x':N,'y':N,'color':'#HEX'}",
         
-        "Then provide a JSON array of drawing commands that will create a simple, colorful drawing. Each command should be one of:",
+        "IMPORTANT:",
+        "- START with background covering ALL 500×400px",
+        "- Use ALL canvas regions, not just top-left",
+        "- Use bold shapes and bright colors",
+        "- Simple cartoon-like style, not realistic",
         
-        "- {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': '#FF0000', 'width': 3}",
-        "- {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': '#00FF00', 'width': 2, 'fill': true}",
-        "- {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': '#0000FF', 'width': 2, 'fill': true}",
-        "- {'action': 'fill_area', 'x': 100, 'y': 100, 'color': '#FFFF00'}",
-        
-        "Guidelines:",
-        "- Use bold, simple shapes and bright colors",
-        "- Create a simplified, cartoon-like representation",
-        "- START with a background that covers the ENTIRE 500x400 canvas",
-        "- Place main elements across the full canvas area, not just in one corner",
-        "- Make sure to use a variety of x,y coordinates spanning from (0,0) to (500,400)",
-        "- Don't try to create realistic artwork - aim for a simple, clear style",
-        
-        "Respond with your thinking in <think></think> tags, followed by a valid JSON array of drawing commands.",
+        "Respond with <think></think> tags, then valid JSON array."
     ]
 
 def get_continuation_prompt(prompt, current_phase, current_part, image, history_text="", command_history=None):
@@ -67,14 +48,13 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
     """
     phase_info = next((phase for phase in PHASES if phase["name"] == current_phase), PHASES[0])
     
-    # Create a spatial context based on previous commands
+    # Create compressed spatial and command summaries
     spatial_context = create_spatial_context(command_history)
     
     return [
-        "You are a digital painting assistant. Continue improving the drawing based on the user's prompt.",
+        "Digital painting assistant. Continue improving drawing.",
         
-        "Original prompt:",
-        prompt,
+        f"Prompt: {prompt}",
         
         "Current drawing:",
         image,
@@ -98,13 +78,12 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "3. How to avoid overwriting or contradicting existing elements",
         "4. How to ensure continuity with the earlier versions",
         
-        "Then provide a JSON array of drawing commands that will enhance the current drawing. Each command should be one of:",
-        
-        "- {'action': 'draw_polyline', 'points': [[x1, y1], [x2, y2], ...], 'color': '#FF0000', 'width': 3}",
-        "- {'action': 'draw_rect', 'x0': 50, 'y0': 50, 'x1': 150, 'y1': 150, 'color': '#00FF00', 'width': 2, 'fill': true}",
-        "- {'action': 'draw_circle', 'x': 100, 'y': 100, 'radius': 50, 'color': '#0000FF', 'width': 2, 'fill': true}",
-        "- {'action': 'fill_area', 'x': 100, 'y': 100, 'color': '#FFFF00'}",
-        "- {'action': 'modify_color', 'target_color': '#FF0000', 'new_color': '#0000FF', 'area_x': 150, 'area_y': 150, 'radius': 50}",
+        "JSON Commands:",
+        "{'action':'draw_polyline','points':[[x,y],...],'color':'#HEX','width':N}",
+        "{'action':'draw_rect','x0':N,'y0':N,'x1':N,'y1':N,'color':'#HEX','fill':bool}",
+        "{'action':'draw_circle','x':N,'y':N,'radius':N,'color':'#HEX','fill':bool}",
+        "{'action':'fill_area','x':N,'y':N,'color':'#HEX'}",
+        "{'action':'modify_color','target_color':'#HEX','new_color':'#HEX','area_x':N,'area_y':N}",
         
         "CRITICAL RULES:",
         "- DO NOT start from scratch - build on the existing drawing",
@@ -117,7 +96,7 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "For this specific phase, focus on:",
         f"{phase_info['parts'][current_part]['focus']}",
         
-        "Respond with your thinking in <think></think> tags, followed by a valid JSON array of drawing commands.",
+        "Respond with <think></think> tags, then JSON array."
     ]
 
 def create_spatial_context(command_history):
@@ -131,7 +110,7 @@ def create_spatial_context(command_history):
         str: Detailed summary of what elements exist where on the canvas
     """
     if not command_history or len(command_history) == 0:
-        return "No elements detected on canvas yet."
+        return "Canvas: empty"
     
     # Track specific elements by type and location
     elements = []
@@ -241,64 +220,33 @@ def get_size_description(width, height):
         return "Large"
     
 def get_region(x, y):
-    """
-    Determine which region of the canvas a point belongs to.
-    
-    Args:
-        x (float): X coordinate
-        y (float): Y coordinate
-        
-    Returns:
-        str: Region name
-    """
+    """Maps coordinates to canvas regions using shorter region codes"""
     if x < 250:
-        if y < 200:
-            return "top-left"
-        else:
-            return "bottom-left"
+        return "TL" if y < 200 else "BL"
     else:
-        if y < 200:
-            return "top-right"
-        else:
-            return "bottom-right"
-    
-    return "center"  # Fallback
+        return "TR" if y < 200 else "BR"
 
 def format_command_history(command_history):
-    """
-    Create a concise summary of command history for context preservation.
-    
-    Args:
-        command_history (list): List of previous drawing commands
-        
-    Returns:
-        str: Formatted summary of command history
-    """
+    """Creates minimal summary of recent drawing activity"""
     if not command_history or len(command_history) == 0:
         return ""
         
-    # Count commands by type
+    # Count commands and colors from last 10 commands only
     counts = {}
     recent_colors = set()
     
-    # Only process the last 20 commands to keep it manageable
-    recent_commands = command_history[-20:]
-    
-    for cmd in recent_commands:
-        action = cmd.get('action', 'unknown')
-        if action not in counts:
-            counts[action] = 0
-        counts[action] += 1
+    for cmd in command_history[-10:]:
+        action = cmd.get('action', '')
+        # Use abbreviated action names
+        action_short = action.replace('draw_', '').replace('_', '')[:5]
         
-        # Track colors used
+        counts[action_short] = counts.get(action_short, 0) + 1
+        
         if 'color' in cmd:
             recent_colors.add(cmd['color'])
     
-    # Create a summary
-    summary = "Recent drawing actions: "
-    for action, count in counts.items():
-        summary += f"{action} ({count}), "
+    # Create compact summary
+    actions = " ".join(f"{a}:{c}" for a, c in counts.items())
+    colors = "/".join(list(recent_colors)[:3])
     
-    summary += f"\nRecent colors: {', '.join(list(recent_colors)[:5])}"
-    
-    return summary
+    return f"Hist: {actions} Col: {colors}"
