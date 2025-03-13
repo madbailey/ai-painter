@@ -43,7 +43,7 @@ def register_routes(app):
 
     @app.route('/get_commands', methods=['POST'])
     def get_commands():
-        """Get drawing commands from Gemini with simplified approach"""
+        """Get drawing commands from Gemini with spatial awareness"""
         data = request.get_json()
         prompt = data.get('prompt')
         current_phase = data.get('phase', 'composition')  # Default to composition phase

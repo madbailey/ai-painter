@@ -1,12 +1,12 @@
 """
-Simplified prompt construction for different painting phases.
+Improved prompt construction with better spatial awareness for painting phases.
 """
 
 from config.phases import PHASES
 
 def get_initial_composition_prompt(prompt, history_text=""):
     """
-    Get simplified prompt for the initial composition phase.
+    Get prompt for the initial composition phase with clear canvas dimensions.
     
     Args:
         prompt (str): User's original prompt
@@ -23,7 +23,14 @@ def get_initial_composition_prompt(prompt, history_text=""):
         
         "This is the COMPOSITION phase. Focus on creating the basic layout and shapes.",
         
-        "Use <think> tags to briefly think about how to approach this drawing.",
+        "IMPORTANT CANVAS INFORMATION:",
+        "- The canvas is 500 pixels wide (x-axis) and 400 pixels tall (y-axis)",
+        "- Coordinates (0,0) are at the top-left corner",
+        "- Coordinates (500,400) are at the bottom-right corner",
+        "- YOU MUST USE THE ENTIRE CANVAS AREA for your composition",
+        "- Place objects across the full width (0-500) and height (0-400)",
+        
+        "Use <think> tags to plan your drawing. Consider what elements will go in each area of the canvas.",
         
         "Then provide a JSON array of drawing commands that will create a simple, colorful drawing. Each command should be one of:",
         
@@ -35,8 +42,9 @@ def get_initial_composition_prompt(prompt, history_text=""):
         "Guidelines:",
         "- Use bold, simple shapes and bright colors",
         "- Create a simplified, cartoon-like representation",
-        "- Canvas size is 500x400 pixels",
-        "- Include a simple background",
+        "- START with a background that covers the ENTIRE 500x400 canvas",
+        "- Place main elements across the full canvas area, not just in one corner",
+        "- Make sure to use a variety of x,y coordinates spanning from (0,0) to (500,400)",
         "- Don't try to create realistic artwork - aim for a simple, clear style",
         
         "Respond with your thinking in <think></think> tags, followed by a valid JSON array of drawing commands.",
@@ -44,7 +52,7 @@ def get_initial_composition_prompt(prompt, history_text=""):
 
 def get_continuation_prompt(prompt, current_phase, current_part, image, history_text="", command_history=None):
     """
-    Get simplified prompt for continuing painting phases.
+    Get prompt for continuing painting phases with spatial context preservation.
     
     Args:
         prompt (str): User's original prompt
@@ -52,12 +60,15 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         current_part (int): Current part index within the phase
         image: The current image (will be included in prompt)
         history_text (str): Previous command history summary
-        command_history (list): Actual command history objects (unused in simplified version)
+        command_history (list): Actual command history objects
         
     Returns:
         list: List of prompt segments for the AI
     """
     phase_info = next((phase for phase in PHASES if phase["name"] == current_phase), PHASES[0])
+    
+    # Create a spatial context based on previous commands
+    spatial_context = create_spatial_context(command_history)
     
     # Get the appropriate instruction based on phase
     phase_instruction = "Add more details and improve the drawing."
@@ -77,11 +88,21 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "Current drawing:",
         image,
         
+        "IMPORTANT CANVAS INFORMATION:",
+        "- The canvas is 500 pixels wide (x-axis) and 400 pixels tall (y-axis)",
+        "- Coordinates (0,0) are at the top-left corner",
+        "- Coordinates (500,400) are at the bottom-right corner",
+        "- YOU MUST USE THE ENTIRE CANVAS AREA for your modifications",
+        "- Look at the current drawing and make changes across the FULL CANVAS",
+        
+        "Current elements on canvas:",
+        spatial_context,
+        
         f"Current phase: {phase_info['display_name']}",
         
         phase_instruction,
         
-        "Use <think> tags to briefly analyze the current drawing and think about how to improve it.",
+        "Use <think> tags to analyze the current drawing and think about how to improve it.",
         
         "Then provide a JSON array of drawing commands that will enhance the current drawing. Each command should be one of:",
         
@@ -91,7 +112,14 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "- {'action': 'fill_area', 'x': 100, 'y': 100, 'color': '#FFFF00'}",
         "- {'action': 'modify_color', 'target_color': '#FF0000', 'new_color': '#0000FF', 'area_x': 150, 'area_y': 150, 'radius': 50}",
         
-        "IMPORTANT:",
+        "IMPORTANT SPATIAL INSTRUCTIONS:",
+        "- DO NOT focus only on the top-left corner! Use the entire canvas (0-500 x, 0-400 y)",
+        "- Make modifications across the full width and height of the canvas",
+        "- Add details to elements throughout the entire drawing",
+        "- If adding new elements, place them in appropriate positions relative to existing elements",
+        "- Look at the center, right side, and bottom areas of the canvas too",
+        
+        "Other important guidelines:",
         "- DO NOT start from scratch - build on the existing drawing",
         "- Make only 5-10 specific modifications",
         "- Maintain the simple, MS Paint cartoon style",
@@ -100,15 +128,108 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "Respond with your thinking in <think></think> tags, followed by a valid JSON array of drawing commands.",
     ]
 
-def format_command_history(command_history):
+def create_spatial_context(command_history):
     """
-    Create a simplified summary of command history.
+    Create a spatial context summary from command history.
     
     Args:
         command_history (list): List of previous drawing commands
         
     Returns:
-        str: Simple summary of command history
+        str: Summary of what elements exist where on the canvas
+    """
+    if not command_history or len(command_history) == 0:
+        return "No elements detected on canvas yet."
+    
+    # Initialize regions of the canvas
+    regions = {
+        "top-left": [],
+        "top-right": [],
+        "center": [],
+        "bottom-left": [],
+        "bottom-right": []
+    }
+    
+    for cmd in command_history:
+        action = cmd.get('action', '')
+        
+        if action == 'draw_rect':
+            x0 = cmd.get('x0', 0)
+            y0 = cmd.get('y0', 0)
+            x1 = cmd.get('x1', 0)
+            y1 = cmd.get('y1', 0)
+            color = cmd.get('color', 'unknown')
+            
+            # Determine region
+            center_x = (x0 + x1) / 2
+            center_y = (y0 + y1) / 2
+            region = get_region(center_x, center_y)
+            
+            regions[region].append(f"{color} rectangle")
+            
+        elif action == 'draw_circle':
+            x = cmd.get('x', 0)
+            y = cmd.get('y', 0)
+            radius = cmd.get('radius', 0)
+            color = cmd.get('color', 'unknown')
+            
+            region = get_region(x, y)
+            regions[region].append(f"{color} circle")
+            
+        elif action == 'fill_area':
+            x = cmd.get('x', 0)
+            y = cmd.get('y', 0)
+            color = cmd.get('color', 'unknown')
+            
+            region = get_region(x, y)
+            regions[region].append(f"{color} fill")
+    
+    # Create a summary
+    summary = "Canvas content overview:\n"
+    for region, elements in regions.items():
+        if elements:
+            summary += f"- {region}: {', '.join(elements[:3])}"
+            if len(elements) > 3:
+                summary += f" and {len(elements)-3} more"
+            summary += "\n"
+        else:
+            summary += f"- {region}: empty\n"
+    
+    return summary
+
+def get_region(x, y):
+    """
+    Determine which region of the canvas a point belongs to.
+    
+    Args:
+        x (float): X coordinate
+        y (float): Y coordinate
+        
+    Returns:
+        str: Region name
+    """
+    if x < 250:
+        if y < 200:
+            return "top-left"
+        else:
+            return "bottom-left"
+    else:
+        if y < 200:
+            return "top-right"
+        else:
+            return "bottom-right"
+    
+    return "center"  # Fallback
+
+def format_command_history(command_history):
+    """
+    Create a concise summary of command history for context preservation.
+    
+    Args:
+        command_history (list): List of previous drawing commands
+        
+    Returns:
+        str: Formatted summary of command history
     """
     if not command_history or len(command_history) == 0:
         return ""

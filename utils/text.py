@@ -52,8 +52,12 @@ def clean_json_string(json_str):
     if "'" in json_str and '"' not in json_str:
         json_str = json_str.replace("'", '"')
 
-    # Replace JavaScript booleans with JSON booleans
+    # Replace JavaScript booleans with JSON booleans if needed
     json_str = json_str.replace("true", "true").replace("false", "false")
+    
+    # Fix common true/false issues
+    json_str = re.sub(r':\s*true\s*([,}])', r':true\1', json_str)
+    json_str = re.sub(r':\s*false\s*([,}])', r':false\1', json_str)
 
     json_str = json_str.strip()
     print(f"Cleaned JSON string: {json_str[:100]}...")
