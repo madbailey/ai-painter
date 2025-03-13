@@ -34,34 +34,46 @@ def clean_json_string(json_str):
     Returns:
         str: Cleaned JSON string
     """
-    # First remove any <think></think> tags and their content
-    if '<think>' in json_str and '</think>' in json_str:
-        pattern = r"<think>[\s\S]*?</think>"
-        json_str = re.sub(pattern, "", json_str, flags=re.DOTALL)
+    # Look for JSON code blocks with ```json ... ``` pattern
+    if '```json' in json_str and '```' in json_str:
+        json_block_pattern = r'```json\s*([\s\S]*?)\s*```'
+        json_matches = re.findall(json_block_pattern, json_str, re.DOTALL)
+        if json_matches:
+            json_str = json_matches[0].strip()
+            print(f"Extracted JSON from code block: {json_str[:100]}...")
     
-    # Clean code blocks
-    if '```' in json_str:
-        pattern = r"```(?:json)?([\s\S]*?)```"
-        matches = re.findall(pattern, json_str, re.DOTALL)
-        if matches:
-            json_str = matches[0].strip()
-        else:
-            json_str = json_str.replace("```json", "").replace("```", "").strip()
+    # If no JSON code blocks found, remove thinking tags first
+    elif '<think>' in json_str and '</think>' in json_str:
+        thinking_pattern = r'<think>[\s\S]*?</think>'
+        json_str = re.sub(thinking_pattern, "", json_str, flags=re.DOTALL)
+        
+        # Then try to find JSON array
+        array_pattern = r'\[\s*{[\s\S]*}\s*\]'
+        array_matches = re.findall(array_pattern, json_str, re.DOTALL)
+        if array_matches:
+            json_str = array_matches[0].strip()
+            print(f"Extracted JSON array after removing thinking tags: {json_str[:100]}...")
     
-    # Remove comments (// style) - CRITICAL FIX
+    # If we still don't have valid JSON, try to clean up what we have
+    if not json_str.strip().startswith('['):
+        # Look for any JSON array anywhere in the string
+        array_pattern = r'\[([\s\S]*?)\]'
+        array_matches = re.findall(array_pattern, json_str, re.DOTALL)
+        if array_matches:
+            for match in array_matches:
+                # Check if this match contains object definitions
+                if '{' in match and '}' in match:
+                    json_str = '[' + match + ']'
+                    print(f"Found JSON array with brute force: {json_str[:100]}...")
+                    break
+    
+    # Remove comments (// style)
     json_str = re.sub(r'//.*?($|\n|\r)', '', json_str)
     
     # Replace single quotes with double quotes if needed
     if "'" in json_str and '"' not in json_str:
         json_str = json_str.replace("'", '"')
 
-    # Replace JavaScript booleans with JSON booleans if needed
-    json_str = json_str.replace("true", "true").replace("false", "false")
-    
-    # Fix common true/false issues
-    json_str = re.sub(r':\s*true\s*([,}])', r':true\1', json_str)
-    json_str = re.sub(r':\s*false\s*([,}])', r':false\1', json_str)
-    
     # Fix trailing commas before closing brackets (common LLM error)
     json_str = re.sub(r',\s*]', ']', json_str)
     json_str = re.sub(r',\s*}', '}', json_str)

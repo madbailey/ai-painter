@@ -22,15 +22,13 @@ def get_initial_sketch_prompt(prompt, history_text=""):
         "{'action':'draw_rect','x0':N,'y0':N,'x1':N,'y1':N,'color':'#000000','width':1,'fill':false}",
         "{'action':'draw_circle','x':N,'y':N,'radius':N,'color':'#000000','width':1,'fill':false}",
         
-        "⚠️ CRITICAL:",
-        "- SKETCH PHASE: Use THIN BLACK LINES only (width:1)",
-        "- NO FILL or COLOR in this phase - just outlines!",
-        "- Use ALL canvas regions (TL/TR/BL/BR) - NOT JUST TOP-LEFT!",
-        "- Plan the ENTIRE 500×400px composition",
+        "- SKETCH PHASE: Please use thin black lines only (width:1)",
+        "- Please no FILL or COLOR in this phase - only outlines!",
+        "- Try to plan the entire 500×400px composition",
         "- Include all major elements from the prompt",
         "- Simple cartoon-like style, not realistic",
         
-        "Respond with <think></think> tags, then JSON array."
+        "Respond with <think></think> tags, then JSON array of commands wrapped in ```json``` blocks."
     ]
 
 def get_continuation_prompt(prompt, current_phase, current_part, image, history_text="", command_history=None):
@@ -91,12 +89,12 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "{'action':'modify_color','target_color':'#HEX','new_color':'#HEX','area_x':N,'area_y':N}",
         
         "⚠️ CRITICAL:",
-        "- USE ALL CANVAS REGIONS (TL/TR/BL/BR) - NOT JUST TOP-LEFT!",
         "- Work across ENTIRE 500×400px canvas",
         "- Make 5-8 specific changes to progress the drawing",
         "- Keep style simple and cartoonish",
-        
-        "Respond with <think></think> tags, then JSON array."
+        "- Respond in this format: ```json [commands] ```",
+
+        "Respond with <think></think> tags, then only a valid JSON array of commands inside ```json and ``` tags."
     ]
 
 def create_spatial_context(command_history):
