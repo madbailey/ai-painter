@@ -9,10 +9,7 @@ from flask import request, jsonify, send_file
 from PIL import Image
 
 from utils.image import data_uri_to_image, image_to_data_uri
-from utils.text import (
-    clean_json_string, extract_thinking, extract_element_json,
-    get_element_registry_summary, ELEMENT_REGISTRY, reset_element_registry
-)
+from utils.text import clean_json_string, extract_thinking, summarize_command_history
 from drawing.processor import process_drawing_command
 from ai.model import get_model
 from ai.prompts import get_initial_composition_prompt, get_continuation_prompt, format_command_history
@@ -41,13 +38,12 @@ def register_routes(app):
 
     @app.route('/reset_drawing', methods=['POST'])
     def reset_drawing():
-        """Reset element registry and state"""
-        reset_element_registry()
-        return jsonify({'status': 'Element registry reset'})
+        """Reset drawing state"""
+        return jsonify({'status': 'Drawing state reset'})
 
     @app.route('/get_commands', methods=['POST'])
     def get_commands():
-        """Get drawing commands from Gemini with improved context tracking"""
+        """Get drawing commands from Gemini with simplified approach"""
         data = request.get_json()
         prompt = data.get('prompt')
         current_phase = data.get('phase', 'composition')  # Default to composition phase
@@ -55,21 +51,12 @@ def register_routes(app):
         current_image = data.get('current_image')
         command_history = data.get('command_history', [])
 
-        # Check if this is a new drawing (composition phase, part 0) and reset registry if needed
-        if current_phase == 'composition' and current_part == 0:
-            if not data.get('continue_existing', False):
-                reset_element_registry()
-                print("Element registry reset for new drawing")
-
         if not prompt:
             return jsonify({'error': 'No prompt provided'}), 400
 
         try:
             # Format the command history for readability
             history_text = format_command_history(command_history)
-                
-            # Log what's in the element registry
-            print(get_element_registry_summary())
                 
             # Find the current phase details
             phase_info = next((phase for phase in PHASES if phase["name"] == current_phase), PHASES[0])
@@ -119,25 +106,26 @@ def register_routes(app):
             print(f"Sending prompt to AI (Phase: {current_phase}, Part: {current_part})")
             response = model.generate_content(prompt_text, generation_config=GENERATION_CONFIG)
             print(f"Raw Gemini Response (Phase: {current_phase}, Part: {current_part}):")
-            print(response.text)
+            print(response.text[:200] + "...") # Only print beginning to avoid console clutter
             
-            # Extract and print thinking stages
+            # Extract thinking for UI display
             thinking = extract_thinking(response.text)
             if thinking:
-                print(f"\nGemini's Three-Stage Reasoning:\n{'-'*50}\n{thinking}\n{'-'*50}")
+                print(f"Extracted thinking from AI response")
             
-            # Extract commands from element tags with context
-            commands = extract_element_json(response.text, current_phase, current_part)
+            # Clean the JSON string
+            cleaned_json = clean_json_string(response.text)
             
-            # Update the element registry summary after extracting commands
-            registry_summary = get_element_registry_summary()
-            print(f"Updated Element Registry:\n{registry_summary}")
-            
-            # Ensure commands is a list
-            if not isinstance(commands, list):
-                commands = [commands] if commands else []
+            # Try to parse commands
+            try:
+                commands = json.loads(cleaned_json)
+                if not isinstance(commands, list):
+                    commands = [commands] if commands else []
+            except json.JSONDecodeError:
+                print("Failed to parse JSON response, returning empty command list")
+                commands = []
                 
-            print(f"Extracted {len(commands)} drawing commands for phase {current_phase}, part {current_part}")
+            print(f"Returning {len(commands)} drawing commands for phase {current_phase}, part {current_part}")
                 
             return jsonify({
                 'commands': commands, 
@@ -146,8 +134,7 @@ def register_routes(app):
                 'next_phase': next_phase,
                 'next_part': next_part,
                 'has_more': has_more,
-                'thinking': thinking,  # Include the thinking for UI display
-                'element_registry': registry_summary  # Include element registry for debugging
+                'thinking': thinking  # Include the thinking for UI display
             })
 
         except Exception as e:

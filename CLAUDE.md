@@ -1,33 +1,39 @@
-# AI Painter Build Commands and Guidelines
+# AI Painter Codebase Guidelines
 
-## Building and Running
+## Setup and Running
 - Install dependencies: `pip install -r requirements.txt`
-- Set environment variables: `export GOOGLE_API_KEY=your_key_here` (or use .env file)
-- Run the app: `python app.py`
+- Set environment variable: `export GOOGLE_API_KEY=your_key_here` (or create .env file)
+- Run development server: `python app.py`
 - Production deployment: `gunicorn app:app`
 
-## Code Style Guidelines
+## Project Structure
+- `app.py`: Main entry point
+- `ai/`: Model initialization and prompt generation
+- `api/`: Flask routes and endpoints
+- `drawing/`: Command processing and brush actions
+- `utils/`: Image and text utilities
+- `config/`: Application configuration
+- Frontend: `index.html`, `script.js`, `drawing-worker.js`
+
+## Style Guidelines
 
 ### Python
-- Object-oriented approach with clear function separation
-- Clean error handling with try/except blocks
-- JSON validation and cleaning for AI responses
-- Descriptive variable names (snake_case)
-- Docstrings for functions and modules
+- Module-level docstrings explaining purpose
+- Function docstrings with parameter descriptions
+- snake_case for variables and functions
+- Explicit error handling with try/except
+- Import order: standard library → third-party → local modules
 
 ### JavaScript
-- Event-driven programming for UI interactions
-- Clear state management
-- Async/await for API calls with proper error handling
-- camelCase variable names
+- camelCase for variables and functions
+- Async/await pattern for API calls
+- Use Web Workers for performance-intensive operations
+- Event-driven architecture with clear state management
+- Consistent error handling with Promise.catch()
 
-### HTML/CSS
-- Semantic HTML5 elements
-- CSS classes with descriptive names
-- Mobile-responsive design
-
-### Additional Notes
-- Use Pillow for image manipulation
-- Handle errors and edge cases gracefully
-- Display loading states for long-running operations
-- Maintain separation between UI and application logic
+### General Principles
+- Separation of concerns between modules
+- Defensive programming with proper validation
+- Clear logging for debugging purposes
+- RESTful API design for backend communications
+- Graceful error handling with user feedback
