@@ -78,7 +78,7 @@ const PHASES = [
     parts: 2
   },
   {
-    name: 'detailing',
+    name: 'refine_lines',
     displayName: 'Refinement',
     description: 'Establishing main color areas and base tones',
     parts: 2
@@ -90,7 +90,7 @@ const PHASES = [
     parts: 2
   },
   {
-    name: 'final_touches',
+    name: 'detail',
     displayName: 'Final Touches',
     description: 'Refining details and adding highlights',
     parts: 2
