@@ -4,31 +4,33 @@ Improved prompt construction with better spatial awareness for painting phases.
 
 from config.phases import PHASES
 
-def get_initial_composition_prompt(prompt, history_text=""):
-    """Creates initial composition prompt with optimized token usage"""
+def get_initial_sketch_prompt(prompt, history_text=""):
+    """Creates initial sketch prompt with optimized token usage"""
     return [
-        "You are a digital painting assistant. Create a simple, cartoonish MS Paint style artwork.",
+        "Digital painting assistant. Create a simple sketch based on the prompt.",
         
         f"Prompt: {prompt}",
         
-        "This is the SKETCH phase. Focus on creating the basic layout and shapes.",
+        "PHASE: SKETCH - Initial line drawing",
+        "FOCUS: Create a simple line sketch of the main elements",
         
         "CANVAS: 500×400px. (0,0)=top-left, (500,400)=bottom-right",
         "USE ENTIRE CANVAS! Distribute elements across all regions (TL/TR/BL/BR)",
         
         "JSON Commands:",
-        "{'action':'draw_polyline','points':[[x1,y1],[x2,y2],...],'color':'#HEX','width':N}",
-        "{'action':'draw_rect','x0':N,'y0':N,'x1':N,'y1':N,'color':'#HEX','width':N,'fill':bool}",
-        "{'action':'draw_circle','x':N,'y':N,'radius':N,'color':'#HEX','width':N,'fill':bool}",
-        "{'action':'fill_area','x':N,'y':N,'color':'#HEX'}",
+        "{'action':'draw_polyline','points':[[x,y],...],'color':'#000000','width':1}",
+        "{'action':'draw_rect','x0':N,'y0':N,'x1':N,'y1':N,'color':'#000000','width':1,'fill':false}",
+        "{'action':'draw_circle','x':N,'y':N,'radius':N,'color':'#000000','width':1,'fill':false}",
         
-        "IMPORTANT:",
-        "- START with background covering ALL 500×400px",
-        "- Use ALL canvas regions, not just top-left",
-        "- Use bold shapes and bright colors",
+        "⚠️ CRITICAL:",
+        "- SKETCH PHASE: Use THIN BLACK LINES only (width:1)",
+        "- NO FILL or COLOR in this phase - just outlines!",
+        "- Use ALL canvas regions (TL/TR/BL/BR) - NOT JUST TOP-LEFT!",
+        "- Plan the ENTIRE 500×400px composition",
+        "- Include all major elements from the prompt",
         "- Simple cartoon-like style, not realistic",
         
-        "Respond with <think></think> tags, then valid JSON array."
+        "Respond with <think></think> tags, then JSON array."
     ]
 
 def get_continuation_prompt(prompt, current_phase, current_part, image, history_text="", command_history=None):
@@ -50,51 +52,49 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
     
     # Create compressed spatial and command summaries
     spatial_context = create_spatial_context(command_history)
+    cmd_summary = format_command_history(command_history)
+    
+    # Phase-specific instructions without repeating main prompt content
+    phase_instructions = {
+        'sketch': "Create simple outline of main elements with thin lines",
+        'refine_lines': "Strengthen important lines and add structural details",
+        'color_blocking': "Fill outlined areas with flat base colors",
+        'detail': "Add shading, highlights, and small details"
+    }
+    
+    instruction = phase_instructions.get(current_phase, "Improve the drawing")
+    
+    # Part-specific focus to give more direction
+    if phase_info and 'parts' and len(phase_info['parts']) > current_part:
+        part_focus = phase_info['parts'][current_part]['focus']
+    else:
+        part_focus = "Continue working on the current phase"
     
     return [
-        "Digital painting assistant. Continue improving drawing.",
+        "Digital painting assistant.",
         
-        f"Prompt: {prompt}",
+        f"PHASE: {phase_info['display_name']} - {instruction}",
+        f"FOCUS: {part_focus}",
         
         "Current drawing:",
         image,
         
-        "IMPORTANT: Your task is to CONTINUE and ENHANCE the current drawing, not to redraw it or start over.",
-        
-        "IMPORTANT CANVAS INFORMATION:",
-        "- The canvas is 500 pixels wide (x-axis) and 400 pixels tall (y-axis)",
-        "- Coordinates (0,0) are at the top-left corner",
-        "- Coordinates (500,400) are at the bottom-right corner",
-        
-        "DETAILED CURRENT ELEMENTS ON CANVAS:",
+        "CANVAS: 500×400px | STATUS:",
         spatial_context,
+        cmd_summary,
         
-        f"Current phase: {phase_info['display_name']} (Phase {PHASES.index(phase_info)+1} of {len(PHASES)})",
-        f"Current part: {current_part+1} of {len(phase_info['parts'])}",
-        
-        "Use <think> tags to analyze the current drawing. Consider:",
-        "1. What has already been drawn",
-        "2. What elements need enhancement based on the current phase",
-        "3. How to avoid overwriting or contradicting existing elements",
-        "4. How to ensure continuity with the earlier versions",
-        
-        "JSON Commands:",
+        "AVAILABLE COMMANDS:",
         "{'action':'draw_polyline','points':[[x,y],...],'color':'#HEX','width':N}",
         "{'action':'draw_rect','x0':N,'y0':N,'x1':N,'y1':N,'color':'#HEX','fill':bool}",
         "{'action':'draw_circle','x':N,'y':N,'radius':N,'color':'#HEX','fill':bool}",
         "{'action':'fill_area','x':N,'y':N,'color':'#HEX'}",
         "{'action':'modify_color','target_color':'#HEX','new_color':'#HEX','area_x':N,'area_y':N}",
         
-        "CRITICAL RULES:",
-        "- DO NOT start from scratch - build on the existing drawing",
-        "- DO NOT redraw major elements that already exist",
-        "- DO NOT contradict or overwrite the existing drawing",
-        "- DO focus on enhancing and detailing what's already there",
-        "- ALWAYS position new elements in relation to existing ones",
-        "- Make only 5-10 specific modifications per response",
-        
-        "For this specific phase, focus on:",
-        f"{phase_info['parts'][current_part]['focus']}",
+        "⚠️ CRITICAL:",
+        "- USE ALL CANVAS REGIONS (TL/TR/BL/BR) - NOT JUST TOP-LEFT!",
+        "- Work across ENTIRE 500×400px canvas",
+        "- Make 5-8 specific changes to progress the drawing",
+        "- Keep style simple and cartoonish",
         
         "Respond with <think></think> tags, then JSON array."
     ]

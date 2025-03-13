@@ -12,7 +12,7 @@ from utils.image import data_uri_to_image, image_to_data_uri
 from utils.text import clean_json_string, extract_thinking, summarize_command_history
 from drawing.processor import process_drawing_command
 from ai.model import get_model
-from ai.prompts import get_initial_composition_prompt, get_continuation_prompt, format_command_history
+from ai.prompts import get_initial_sketch_prompt, get_continuation_prompt, format_command_history
 from config.phases import PHASES, GENERATION_CONFIG
 
 def register_routes(app):
@@ -81,8 +81,8 @@ def register_routes(app):
             
             # Build different prompts based on phase and part
             if current_phase == 'sketch' and current_part == 0:
-                # Initial composition, first part
-                prompt_text = get_initial_composition_prompt(prompt, history_text)
+                # Initial sketch, first part
+                prompt_text = get_initial_sketch_prompt(prompt, history_text)
             else:
                 # All other phases and parts
                 if not current_image:
