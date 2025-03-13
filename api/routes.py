@@ -46,7 +46,7 @@ def register_routes(app):
         """Get drawing commands from Gemini with spatial awareness"""
         data = request.get_json()
         prompt = data.get('prompt')
-        current_phase = data.get('phase', 'composition')  # Default to composition phase
+        current_phase = data.get('phase', 'sketch')  # Default to sketch phase
         current_part = data.get('part', 0)  # Default to first part (0-indexed)
         current_image = data.get('current_image')
         command_history = data.get('command_history', [])
@@ -80,7 +80,7 @@ def register_routes(app):
                 return jsonify({'error': 'AI model not initialized'}), 500
             
             # Build different prompts based on phase and part
-            if current_phase == 'composition' and current_part == 0:
+            if current_phase == 'sketch' and current_part == 0:
                 # Initial composition, first part
                 prompt_text = get_initial_composition_prompt(prompt, history_text)
             else:

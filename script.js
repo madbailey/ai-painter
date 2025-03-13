@@ -72,20 +72,20 @@ if (window.Worker) {
 //phase definitions
 const PHASES = [
   {
-    name: 'composition',
-    displayName: 'Composition',
+    name: 'sketch',
+    displayName: 'Sketching',
     description: 'Setting up the basic forms and layout',
+    parts: 2
+  },
+  {
+    name: 'detailing',
+    displayName: 'Refinement',
+    description: 'Establishing main color areas and base tones',
     parts: 2
   },
   {
     name: 'color_blocking',
     displayName: 'Color Blocking',
-    description: 'Establishing main color areas and base tones',
-    parts: 2
-  },
-  {
-    name: 'detailing',
-    displayName: 'Detailing',
     description: 'Adding definition, mid-tones and texture',
     parts: 2
   },
@@ -99,7 +99,7 @@ const PHASES = [
 
 
 
-let currentPhase = 'composition';
+let currentPhase = 'sketch';
 let currentPhaseIndex = 0;
 let currentPart = 0;
 let nextPartToTransition = 0;
@@ -1076,13 +1076,13 @@ generateBtn.addEventListener('click', async () => {
   console.log("Starting or continuing drawing.");
   isDrawing = true;
   
-  // If starting fresh, reset to composition phase
+  // If starting fresh, reset to sketch phase
   // If continuing, use the current phase
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const isEmpty = !Array.from(imageData.data).some((channel, i) => (i % 4 !== 3) && channel !== 255);
   
   if (isEmpty) {
-      setCurrentPhase('composition');
+      setCurrentPhase('sketch');
       currentPart = 0;  // Make sure to reset part to 0
       commandHistory = []; // Clear history for a blank canvas
   }

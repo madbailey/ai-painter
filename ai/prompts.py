@@ -21,7 +21,7 @@ def get_initial_composition_prompt(prompt, history_text=""):
         "Here is the prompt:",
         prompt,
         
-        "This is the COMPOSITION phase. Focus on creating the basic layout and shapes.",
+        "This is the SKETCH phase. Focus on creating the basic layout and shapes.",
         
         "IMPORTANT CANVAS INFORMATION:",
         "- The canvas is 500 pixels wide (x-axis) and 400 pixels tall (y-axis)",
@@ -52,11 +52,11 @@ def get_initial_composition_prompt(prompt, history_text=""):
 
 def get_continuation_prompt(prompt, current_phase, current_part, image, history_text="", command_history=None):
     """
-    Get prompt for continuing painting phases with spatial context preservation.
+    Get prompt for continuing painting phases with enhanced spatial context preservation.
     
     Args:
         prompt (str): User's original prompt
-        current_phase (str): Current phase name (e.g., 'composition')
+        current_phase (str): Current phase name (e.g., 'sketch')
         current_part (int): Current part index within the phase
         image: The current image (will be included in prompt)
         history_text (str): Previous command history summary
@@ -70,15 +70,6 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
     # Create a spatial context based on previous commands
     spatial_context = create_spatial_context(command_history)
     
-    # Get the appropriate instruction based on phase
-    phase_instruction = "Add more details and improve the drawing."
-    if current_phase == 'color_blocking':
-        phase_instruction = "Add colors to the main areas of the drawing."
-    elif current_phase == 'detailing':
-        phase_instruction = "Add details to make the drawing more interesting."
-    elif current_phase == 'final_touches':
-        phase_instruction = "Add final touches to complete the drawing."
-    
     return [
         "You are a digital painting assistant. Continue improving the drawing based on the user's prompt.",
         
@@ -88,21 +79,24 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "Current drawing:",
         image,
         
+        "IMPORTANT: Your task is to CONTINUE and ENHANCE the current drawing, not to redraw it or start over.",
+        
         "IMPORTANT CANVAS INFORMATION:",
         "- The canvas is 500 pixels wide (x-axis) and 400 pixels tall (y-axis)",
         "- Coordinates (0,0) are at the top-left corner",
         "- Coordinates (500,400) are at the bottom-right corner",
-        "- YOU MUST USE THE ENTIRE CANVAS AREA for your modifications",
-        "- Look at the current drawing and make changes across the FULL CANVAS",
         
-        "Current elements on canvas:",
+        "DETAILED CURRENT ELEMENTS ON CANVAS:",
         spatial_context,
         
-        f"Current phase: {phase_info['display_name']}",
+        f"Current phase: {phase_info['display_name']} (Phase {PHASES.index(phase_info)+1} of {len(PHASES)})",
+        f"Current part: {current_part+1} of {len(phase_info['parts'])}",
         
-        phase_instruction,
-        
-        "Use <think> tags to analyze the current drawing and think about how to improve it.",
+        "Use <think> tags to analyze the current drawing. Consider:",
+        "1. What has already been drawn",
+        "2. What elements need enhancement based on the current phase",
+        "3. How to avoid overwriting or contradicting existing elements",
+        "4. How to ensure continuity with the earlier versions",
         
         "Then provide a JSON array of drawing commands that will enhance the current drawing. Each command should be one of:",
         
@@ -112,46 +106,53 @@ def get_continuation_prompt(prompt, current_phase, current_part, image, history_
         "- {'action': 'fill_area', 'x': 100, 'y': 100, 'color': '#FFFF00'}",
         "- {'action': 'modify_color', 'target_color': '#FF0000', 'new_color': '#0000FF', 'area_x': 150, 'area_y': 150, 'radius': 50}",
         
-        "IMPORTANT SPATIAL INSTRUCTIONS:",
-        "- DO NOT focus only on the top-left corner! Use the entire canvas (0-500 x, 0-400 y)",
-        "- Make modifications across the full width and height of the canvas",
-        "- Add details to elements throughout the entire drawing",
-        "- If adding new elements, place them in appropriate positions relative to existing elements",
-        "- Look at the center, right side, and bottom areas of the canvas too",
-        
-        "Other important guidelines:",
+        "CRITICAL RULES:",
         "- DO NOT start from scratch - build on the existing drawing",
-        "- Make only 5-10 specific modifications",
-        "- Maintain the simple, MS Paint cartoon style",
-        "- Use bright, bold colors",
+        "- DO NOT redraw major elements that already exist",
+        "- DO NOT contradict or overwrite the existing drawing",
+        "- DO focus on enhancing and detailing what's already there",
+        "- ALWAYS position new elements in relation to existing ones",
+        "- Make only 5-10 specific modifications per response",
+        
+        "For this specific phase, focus on:",
+        f"{phase_info['parts'][current_part]['focus']}",
         
         "Respond with your thinking in <think></think> tags, followed by a valid JSON array of drawing commands.",
     ]
 
 def create_spatial_context(command_history):
     """
-    Create a spatial context summary from command history.
+    Create a detailed spatial context summary from command history.
     
     Args:
         command_history (list): List of previous drawing commands
         
     Returns:
-        str: Summary of what elements exist where on the canvas
+        str: Detailed summary of what elements exist where on the canvas
     """
     if not command_history or len(command_history) == 0:
         return "No elements detected on canvas yet."
     
-    # Initialize regions of the canvas
-    regions = {
-        "top-left": [],
-        "top-right": [],
-        "center": [],
-        "bottom-left": [],
-        "bottom-right": []
-    }
+    # Track specific elements by type and location
+    elements = []
+    bg_color = None
     
-    for cmd in command_history:
+    for i, cmd in enumerate(command_history):
         action = cmd.get('action', '')
+        
+        # Extract background color (usually the first filled rectangle covering the entire canvas)
+        if action == 'draw_rect' and i < 5:  # Check early commands
+            x0 = cmd.get('x0', 0)
+            y0 = cmd.get('y0', 0)
+            x1 = cmd.get('x1', 0)
+            y1 = cmd.get('y1', 0)
+            fill = cmd.get('fill', False)
+            
+            # If this covers most of the canvas, it's likely the background
+            if x0 <= 10 and y0 <= 10 and x1 >= 490 and y1 >= 390 and fill:
+                bg_color = cmd.get('color', 'unknown')
+                elements.append(f"Background: {bg_color} rectangle covering the entire canvas")
+                continue
         
         if action == 'draw_rect':
             x0 = cmd.get('x0', 0)
@@ -159,44 +160,86 @@ def create_spatial_context(command_history):
             x1 = cmd.get('x1', 0)
             y1 = cmd.get('y1', 0)
             color = cmd.get('color', 'unknown')
+            fill = cmd.get('fill', False)
             
-            # Determine region
+            width = abs(x1 - x0)
+            height = abs(y1 - y0)
             center_x = (x0 + x1) / 2
             center_y = (y0 + y1) / 2
-            region = get_region(center_x, center_y)
             
-            regions[region].append(f"{color} rectangle")
+            position = get_position_description(center_x, center_y)
+            size_desc = get_size_description(width, height)
+            
+            elements.append(f"{size_desc} {color} rectangle in the {position} ({x0},{y0} to {x1},{y1}), {'filled' if fill else 'outlined'}")
             
         elif action == 'draw_circle':
             x = cmd.get('x', 0)
             y = cmd.get('y', 0)
             radius = cmd.get('radius', 0)
             color = cmd.get('color', 'unknown')
+            fill = cmd.get('fill', False)
             
-            region = get_region(x, y)
-            regions[region].append(f"{color} circle")
+            position = get_position_description(x, y)
+            size_desc = get_size_description(radius * 2, radius * 2)
             
-        elif action == 'fill_area':
-            x = cmd.get('x', 0)
-            y = cmd.get('y', 0)
+            elements.append(f"{size_desc} {color} circle at {position} (center: {x},{y}, radius: {radius}), {'filled' if fill else 'outlined'}")
+            
+        elif action == 'draw_polyline':
+            points = cmd.get('points', [])
             color = cmd.get('color', 'unknown')
+            width = cmd.get('width', 1)
             
-            region = get_region(x, y)
-            regions[region].append(f"{color} fill")
+            if len(points) < 2:
+                continue
+                
+            # Calculate center of polyline
+            x_coords = [p[0] for p in points]
+            y_coords = [p[1] for p in points]
+            center_x = sum(x_coords) / len(x_coords)
+            center_y = sum(y_coords) / len(y_coords)
+            
+            position = get_position_description(center_x, center_y)
+            
+            # Estimate size of polyline
+            min_x, max_x = min(x_coords), max(x_coords)
+            min_y, max_y = min(y_coords), max(y_coords)
+            width_line = max_x - min_x
+            height_line = max_y - min_y
+            size_desc = get_size_description(width_line, height_line)
+            
+            elements.append(f"{size_desc} {color} line in the {position} (from {points[0]} to {points[-1]})")
     
-    # Create a summary
-    summary = "Canvas content overview:\n"
-    for region, elements in regions.items():
-        if elements:
-            summary += f"- {region}: {', '.join(elements[:3])}"
-            if len(elements) > 3:
-                summary += f" and {len(elements)-3} more"
-            summary += "\n"
-        else:
-            summary += f"- {region}: empty\n"
+    # Create a summary with a max of 15 elements to avoid overloading
+    if len(elements) > 15:
+        main_elements = elements[:15]
+        summary = "Canvas content overview (showing 15 of {} elements):\n".format(len(elements))
+        summary += "\n".join(f"- {element}" for element in main_elements)
+    else:
+        summary = "Canvas content overview ({} elements):\n".format(len(elements))
+        summary += "\n".join(f"- {element}" for element in elements)
+    
+    # Add a note about background if detected
+    if bg_color:
+        summary += f"\n\nBackground color: {bg_color}"
     
     return summary
 
+def get_position_description(x, y):
+    """Provide a human-readable position description"""
+    horizontal = "left" if x < 167 else "middle" if x < 333 else "right"
+    vertical = "top" if y < 133 else "middle" if y < 266 else "bottom"
+    return f"{vertical}-{horizontal}"
+
+def get_size_description(width, height):
+    """Provide a size description based on dimensions"""
+    size = max(width, height)
+    if size < 20:
+        return "Small"
+    elif size < 100:
+        return "Medium"
+    else:
+        return "Large"
+    
 def get_region(x, y):
     """
     Determine which region of the canvas a point belongs to.

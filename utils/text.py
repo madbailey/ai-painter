@@ -48,6 +48,9 @@ def clean_json_string(json_str):
         else:
             json_str = json_str.replace("```json", "").replace("```", "").strip()
     
+    # Remove comments (// style) - CRITICAL FIX
+    json_str = re.sub(r'//.*?($|\n|\r)', '', json_str)
+    
     # Replace single quotes with double quotes if needed
     if "'" in json_str and '"' not in json_str:
         json_str = json_str.replace("'", '"')
@@ -58,6 +61,10 @@ def clean_json_string(json_str):
     # Fix common true/false issues
     json_str = re.sub(r':\s*true\s*([,}])', r':true\1', json_str)
     json_str = re.sub(r':\s*false\s*([,}])', r':false\1', json_str)
+    
+    # Fix trailing commas before closing brackets (common LLM error)
+    json_str = re.sub(r',\s*]', ']', json_str)
+    json_str = re.sub(r',\s*}', '}', json_str)
 
     json_str = json_str.strip()
     print(f"Cleaned JSON string: {json_str[:100]}...")
@@ -69,21 +76,50 @@ def clean_json_string(json_str):
         print(f"Warning: Could not parse: {e}")
         print(f"Full cleaned JSON: {json_str}")
         
-        # Basic error correction
+        # Advanced error correction
         try:
-            # Fix trailing commas
-            json_str = re.sub(r',\s*]', ']', json_str)
-            json_str = re.sub(r',\s*}', '}', json_str)
+            # Check if array is missing opening or closing bracket
+            if not json_str.startswith('['):
+                json_str = '[' + json_str
+            if not json_str.endswith(']'):
+                json_str = json_str + ']'
+                
+            # Check for missing commas between objects
+            json_str = re.sub(r'}\s*{', '},{', json_str)
             
-            # Try again
+            # Try again after bracket fixes
             json.loads(json_str)
         except json.JSONDecodeError as e:
             print(f"Still couldn't parse JSON after fixes: {e}")
-            # Return empty array rather than crashing
-            return "[]"
+            
+            # Last resort: extract valid objects individually
+            try:
+                pattern = r'{[^{}]*}'
+                matches = re.findall(pattern, json_str)
+                if matches:
+                    valid_objects = []
+                    for obj_str in matches:
+                        try:
+                            # Test if this object parses correctly
+                            json.loads(obj_str)
+                            valid_objects.append(obj_str)
+                        except json.JSONDecodeError:
+                            # Skip invalid objects
+                            pass
+                    
+                    if valid_objects:
+                        # Reconstruct a valid array
+                        json_str = '[' + ','.join(valid_objects) + ']'
+                        # Final test
+                        json.loads(json_str)
+                    else:
+                        return "[]"
+                else:
+                    return "[]"
+            except Exception:
+                return "[]"
         
     return json_str
-
 def summarize_command_history(command_history, max_commands=5):
     """
     Create a concise summary of command history for context preservation.
